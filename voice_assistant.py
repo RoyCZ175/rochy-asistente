@@ -378,6 +378,12 @@ def run() -> None:
         background_color="#05070d",
         on_top=True,
     )
+
+    # Cerrar con la X de la ventana no pasa por el bucle de voz/texto (que
+    # sigue en su propio hilo esperando el micrófono) — sin esto, el proceso
+    # se quedaba vivo en segundo plano aunque la ventana ya no se viera.
+    window.events.closed += lambda: os._exit(0)
+
     webview.start(_assistant_loop, window)
 
 
