@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Rochy</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #05070d;
+    overflow: hidden;
+    font-family: 'Segoe UI', Consolas, monospace;
+    color: #cfe8ff;
+  }
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    box-sizing: border-box;
+  }
+
+  /* --- Orbe --- */
+  #orbWrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 14px 0 6px 0;
+    flex: 0 0 auto;
+  }
+  canvas#orb {
+    display: block;
+  }
+  #stateLabel {
+    margin-top: 2px;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    opacity: 0.75;
+    color: #9fd8ff;
+  }
+  #assistantName {
+    font-size: 14px;
+    font-weight: 300;
+    letter-spacing: 4px;
+    color: #9fd8ff;
+    text-shadow: 0 0 8px currentColor;
+  }
+
+  /* --- Transcript --- */
+  #log {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 8px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  #log::-webkit-scrollbar { width: 6px; }
+  #log::-webkit-scrollbar-thumb { background: #1c2a3f; border-radius: 3px; }
+
+  .bubble {
+    max-width: 85%;
+    padding: 7px 11px;
+    border-radius: 12px;
+    font-size: 12.5px;
+    line-height: 1.4;
+    word-wrap: break-word;
+  }
+  .bubble.user {
+    align-self: flex-end;
+    background: #14304d;
+    color: #d8ecff;
+    border-bottom-right-radius: 3px;
+  }
+  .bubble.assistant {
+    align-self: flex-start;
+    background: #10151f;
+    color: #bfe3ff;
+    border: 1px solid #1c2a3f;
+    border-bottom-left-radius: 3px;
+  }
+
+  /* --- Entrada de texto --- */
+  #inputRow {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    padding: 10px;
+    border-top: 1px solid #10182633;
+    background: #060a12;
+  }
+  #textInput {
+    flex: 1;
+    background: #0e1421;
+    border: 1px solid #1c2a3f;
+    border-radius: 8px;
+    color: #dbeeff;
+    padding: 8px 10px;
+    font-size: 12.5px;
+    outline: none;
+  }
+  #textInput:focus {
+    border-color: #3d7dff;
+  }
+  #sendBtn {
+    background: #14304d;
+    border: 1px solid #2a4d78;
+    color: #9fd8ff;
+    border-radius: 8px;
+    padding: 0 14px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  #sendBtn:hover {
+    background: #1c3f66;
+  }
+
+  #connLabel {
+    text-align: center;
+    font-size: 9.5px;
+    letter-spacing: 1.5px;
+    opacity: 0.4;
+    padding: 3px 0 6px 0;
+  }
+
+  /* --- Botones de control --- */
+  #controlRow {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 0 10px 0;
+    flex: 0 0 auto;
+  }
+  .ctrlBtn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: #0e1421;
+    border: 1px solid #1c2a3f;
+    color: #9fd8ff;
+    border-radius: 8px;
+    padding: 5px 11px;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+  }
+  .ctrlBtn:hover {
+    border-color: #3d7dff;
+    background: #10182a;
+  }
+  #powerBtn:hover {
+    border-color: #ff4d6d;
+    color: #ff8fa3;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="orbWrap">
+    <div id="assistantName">ROCHY</div>
+    <canvas id="orb" width="130" height="130"></canvas>
+    <div id="stateLabel">EN ESPERA</div>
+  </div>
+
+  <div id="controlRow">
+    <button class="ctrlBtn" id="pauseBtn" title="Deja de escuchar activamente, la app se queda abierta">⏸ Pausar</button>
+    <button class="ctrlBtn" id="powerBtn" title="Cierra la aplicación por completo">⏻ Apagar</button>
+  </div>
+
+  <div id="log"></div>
+
+  <div id="inputRow">
+    <input id="textInput" type="text" placeholder="Escríbele si la voz falla…" autocomplete="off">
+    <button id="sendBtn">Enviar</button>
+  </div>
+  <div id="connLabel">conectando…</div>
+</div>
+
+<script>
+const canvas = document.getElementById('orb');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const cx = W / 2, cy = H / 2;
+
+const STATES = {
+  idle:      { color: [70, 130, 255],  pulse: 0.6,  amplitude: 0.18, label: 'EN ESPERA' },
+  listening: { color: [60, 220, 150],  pulse: 1.1,  amplitude: 0.4,  label: 'ESCUCHANDO' },
+  thinking:  { color: [255, 180, 60],  pulse: 2.2,  amplitude: 0.5,  label: 'PROCESANDO' },
+  speaking:  { color: [255, 90, 150],  pulse: 1.4,  amplitude: 0.6,  label: 'HABLANDO' },
+};
+
+let current = { ...STATES.idle };
+let target = { ...STATES.idle };
+
+function setState(name) {
+  if (!STATES[name]) return;
+  target = { ...STATES[name] };
+  document.getElementById('stateLabel').textContent = STATES[name].label;
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// pequeñas partículas orbitando el núcleo
+const PARTICLES = Array.from({ length: 14 }, (_, i) => ({
+  angle: (i / 14) * Math.PI * 2,
+  radius: 40 + Math.random() * 12,
+  speed: 0.2 + Math.random() * 0.3,
+  size: 1 + Math.random() * 1.5,
+}));
+
+function step(now) {
+  for (const k of ['pulse', 'amplitude']) {
+    current[k] = lerp(current[k], target[k], 0.05);
+  }
+  current.color = current.color.map((c, i) => lerp(c, target.color[i], 0.05));
+
+  ctx.clearRect(0, 0, W, H);
+  const [r, g, b] = current.color;
+
+  const coreR = 22 + Math.sin(now / 450 * current.pulse) * 8 * current.amplitude;
+
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2.6);
+  grad.addColorStop(0, `rgba(${r},${g},${b},0.65)`);
+  grad.addColorStop(1, 'rgba(5,7,13,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, coreR * 2.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.shadowBlur = 16;
+  ctx.shadowColor = `rgb(${r},${g},${b})`;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  for (const p of PARTICLES) {
+    p.angle += 0.006 * p.speed * current.pulse;
+    const rad = p.radius + Math.sin(now / 500 + p.angle) * 4 * current.amplitude;
+    const x = cx + Math.cos(p.angle) * rad;
+    const y = cy + Math.sin(p.angle) * rad;
+    ctx.beginPath();
+    ctx.arc(x, y, p.size, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${r},${g},${b},0.7)`;
+    ctx.fill();
+  }
+
+  requestAnimationFrame(step);
+}
+requestAnimationFrame(step);
+
+// --- Transcript ---
+const log = document.getElementById('log');
+function addBubble(role, text) {
+  const div = document.createElement('div');
+  div.className = 'bubble ' + (role === 'user' ? 'user' : 'assistant');
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+// --- WebSocket ---
+let ws;
+function connect() {
+  const conn = document.getElementById('connLabel');
+  try {
+    ws = new WebSocket('ws://localhost:8765');
+  } catch (e) {
+    setTimeout(connect, 2000);
+    return;
+  }
+  ws.onopen = () => { conn.textContent = 'conectado'; };
+  ws.onclose = () => { conn.textContent = 'reconectando…'; setTimeout(connect, 2000); };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (event) => {
+    let data;
+    try { data = JSON.parse(event.data); } catch (e) { return; }
+    if (data.type === 'state' && data.state) {
+      setState(data.state);
+    } else if (data.type === 'transcript' && data.text) {
+      addBubble(data.role, data.text);
+    }
+  };
+}
+connect();
+
+// --- Entrada de texto ---
+const input = document.getElementById('textInput');
+const sendBtn = document.getElementById('sendBtn');
+
+function sendText() {
+  const text = input.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'text_command', text }));
+  input.value = '';
+}
+
+sendBtn.addEventListener('click', sendText);
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendText();
+});
+
+// --- Botones de control: mandan el mismo texto que reconocería si lo
+// escribieras o dijeras, así siguen exactamente la misma lógica de siempre ---
+function sendControl(text) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'text_command', text }));
+}
+
+document.getElementById('pauseBtn').addEventListener('click', () => sendControl('descansa'));
+document.getElementById('powerBtn').addEventListener('click', () => sendControl('apágate'));
+</script>
+</body>
+</html>
