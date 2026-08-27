@@ -14,7 +14,17 @@ import json
 
 import requests
 
-from ai_brain import TOOLS, VERBATIM_TOOLS, TYPING_TOOLS, _typing_intent_present, build_tool_functions
+import concurrent.futures
+
+from ai_brain import (
+    TOOLS,
+    VERBATIM_TOOLS,
+    TYPING_TOOLS,
+    TOOL_TIMEOUT_SECONDS,
+    _tool_executor,
+    _typing_intent_present,
+    build_tool_functions,
+)
 import memory_store as mem
 
 OLLAMA_BASE = "http://localhost:11434"
@@ -60,11 +70,18 @@ class LocalAIBrain:
     def reset(self) -> None:
         self.history = [{"role": "system", "content": self._system_content}]
 
-    def ask(self, user_text: str) -> str:
+    def ask(self, user_text: str, cancel_event=None) -> str:
         self.history.append({"role": "user", "content": user_text})
         self._trim_history()
 
+        if cancel_event is not None and cancel_event.is_set():
+            return None
+
         message = self._chat(tools=TOOLS)
+
+        if cancel_event is not None and cancel_event.is_set():
+            return None
+
         tool_calls = message.get("tool_calls") or []
 
         if not tool_calls:
@@ -87,7 +104,16 @@ class LocalAIBrain:
                 result = "No hice eso: no pediste explícitamente escribir o teclear algo en otra aplicación."
             else:
                 try:
-                    result = func(args)
+                    # mismo límite de tiempo por herramienta que el cerebro en la nube
+                    # (ai_brain.py): sin esto, algo como una llamada a Spotify colgada
+                    # podía bloquear este hilo sin límite.
+                    future = _tool_executor.submit(func, args)
+                    result = future.result(timeout=TOOL_TIMEOUT_SECONDS)
+                except concurrent.futures.TimeoutError:
+                    result = (
+                        f"Cancelé '{name}' porque tardó demasiado (más de "
+                        f"{TOOL_TIMEOUT_SECONDS} segundos) sin responder."
+                    )
                 except Exception as exc:
                     result = f"No se pudo ejecutar {name}: {exc}"
 
@@ -99,6 +125,9 @@ class LocalAIBrain:
         if verbatim_result is not None:
             self.history.append({"role": "assistant", "content": verbatim_result})
             return verbatim_result
+
+        if cancel_event is not None and cancel_event.is_set():
+            return None
 
         followup = self._chat(tools=None)
         final_text = followup.get("content") or ""

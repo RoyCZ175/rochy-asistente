@@ -22,6 +22,7 @@ import connectivity
 import control_signal
 import local_brain
 import mode_state
+import processing_state as proc
 import system_control as sc
 import ui_server
 
@@ -62,8 +63,12 @@ CONVERSATION_TIMEOUT = 30
 # Frases que cancelan lo que se esté procesando, respondidas al instante (sin
 # esperar turno ni gastar tokens de IA) — chequeadas antes de tomar el lock
 # compartido, para que un "cancela" nunca se quede esperando detrás de algo
-# que está tardando.
-CANCEL_PHRASES = {"cancela", "cancelar", "detente", "para", "olvidalo"}
+# que está tardando (ej. Spotify colgado esperando una respuesta de la red).
+CANCEL_PHRASES = {
+    "cancela", "cancelar", "detente", "para", "olvidalo",
+    "ya no", "ya no lo hagas", "no lo hagas", "mejor olvidalo",
+    "cancela eso", "detente ya", "espera",
+}
 
 
 def _is_cancel(text: str) -> bool:
@@ -151,12 +156,21 @@ def _classify_control_intent(command_text: str) -> str:
     return "none"
 
 
-def _handle_command(command_text: str, config, brain, local_brain_ai, voice) -> str:
-    """Procesa un comando (venga de voz o de texto) y devuelve 'exit',
-    'end_conversation' o 'handled'. Compartido por ambos canales de entrada."""
+def _handle_fast_intent(command_text: str, config, brain, local_brain_ai, voice):
+    """Atiende al instante las órdenes de control (salir/pausar/reiniciar/
+    cambiar de modo) — ninguna necesita IA, así que nunca tardan. Devuelve el
+    estado si aplicó alguna, o None si es charla/tarea normal y debe seguir a
+    la IA (la parte que sí puede tardar, y por eso corre aparte)."""
     print(f"Tú: {command_text}")
     ui_server.broadcast_transcript("user", command_text)
     intent = _classify_control_intent(command_text)
+
+    # Cualquier orden de control explícita (incluso "reinicia la conversación"
+    # o cambiar de modo) significa que lo que se estuviera procesando de fondo
+    # ya no le importa al usuario — que no reaparezca hablando solo cuando por
+    # fin termine (o se destrabe, si estaba colgado con algo como Spotify).
+    if intent != "none" and proc.busy_event.is_set():
+        proc.cancel_event.set()
 
     if intent == "exit":
         farewell = "Hasta luego."
@@ -203,33 +217,51 @@ def _handle_command(command_text: str, config, brain, local_brain_ai, voice) -> 
         ui_server.broadcast_transcript("assistant", reply)
         return "handled"
 
-    ui_server.broadcast_state("thinking")
+    return None
+
+
+def _generate_response(command_text: str, config, brain, local_brain_ai, cancel_event) -> str:
+    """La parte que sí puede tardar (llamadas a la IA y sus herramientas —
+    incluida una que se cuelgue, como Spotify sin sesión). Corre en un hilo
+    aparte para no bloquear el micrófono/texto mientras dura. Devuelve None
+    si se pidió cancelar mientras se procesaba (nada que decir ya)."""
     quick = parse_command(command_text)
     if quick["action"] in {"time", "open_app"}:
-        response = build_response(command_text)
-    else:
-        response = local_brain.try_local_answer(command_text, config.assistant_name)
-        if response is None:
-            if mode_state.is_forced_local() and local_brain_ai is not None:
-                response = local_brain_ai.ask(command_text)
-            elif connectivity.is_online():
-                try:
-                    response = brain.ask(command_text)
-                except Exception as exc:
-                    # Groq puede fallar aunque haya internet (cupo agotado, caída del
-                    # servicio, etc.) — si hay IA local, la usamos en vez de solo fallar.
-                    if local_brain_ai is not None:
-                        print(f"[aviso] Groq falló ({exc}), uso la IA local de respaldo.")
-                        response = local_brain_ai.ask(command_text)
-                    else:
-                        raise
-            elif local_brain_ai is not None:
-                response = local_brain_ai.ask(command_text)
-            else:
-                response = (
-                    "No tengo internet ni un modelo de IA local instalado ahora mismo. "
-                    "Solo puedo ayudarte con comandos básicos por ahora."
-                )
+        return build_response(command_text)
+
+    response = local_brain.try_local_answer(command_text, config.assistant_name)
+    if response is not None:
+        return response
+
+    if mode_state.is_forced_local() and local_brain_ai is not None:
+        return local_brain_ai.ask(command_text, cancel_event=cancel_event)
+
+    if connectivity.is_online():
+        try:
+            return brain.ask(command_text, cancel_event=cancel_event)
+        except Exception as exc:
+            # Groq puede fallar aunque haya internet (cupo agotado, caída del
+            # servicio, etc.) — si hay IA local, la usamos en vez de solo fallar.
+            if local_brain_ai is not None:
+                print(f"[aviso] Groq falló ({exc}), uso la IA local de respaldo.")
+                return local_brain_ai.ask(command_text, cancel_event=cancel_event)
+            raise
+
+    if local_brain_ai is not None:
+        return local_brain_ai.ask(command_text, cancel_event=cancel_event)
+
+    return (
+        "No tengo internet ni un modelo de IA local instalado ahora mismo. "
+        "Solo puedo ayudarte con comandos básicos por ahora."
+    )
+
+
+def _finish_response(config, voice, response) -> str:
+    """Dice y registra la respuesta ya generada. Si response es None, la
+    petición se canceló mientras se procesaba (el usuario dijo "olvídalo" o
+    dio otra orden) y no hay nada que decir — se salta en silencio."""
+    if response is None:
+        return "handled"
 
     print(f"{config.assistant_name}: {response}")
     ui_server.broadcast_transcript("assistant", response)
@@ -245,6 +277,49 @@ def _handle_command(command_text: str, config, brain, local_brain_ai, voice) -> 
         return "end_conversation"
 
     return "handled"
+
+
+def _process_slow_command(command_text, config, brain, local_brain_ai, voice, lock, stop_event) -> None:
+    """Ejecuta la parte lenta (IA/herramientas) en su propio hilo. Se queda
+    esperando el lock compartido si otra petición sigue en curso — así solo
+    una a la vez toca el historial de la IA — pero eso nunca bloquea al
+    micrófono/texto, que siguen escuchando mientras tanto en su propio hilo."""
+    with lock:
+        # Se limpia justo aquí (no al pedir la cancelación) para que solo
+        # afecte a la petición que de verdad estaba corriendo cuando se pidió.
+        proc.cancel_event.clear()
+        proc.busy_event.set()
+        ui_server.broadcast_state("thinking")
+        try:
+            response = _generate_response(command_text, config, brain, local_brain_ai, proc.cancel_event)
+            status = _finish_response(config, voice, response)
+        except Exception as exc:
+            _report_error(voice, exc)
+            status = "handled"
+        finally:
+            proc.busy_event.clear()
+            ui_server.broadcast_state("idle")
+
+    if status == "exit":
+        stop_event.set()
+
+
+def _handle_command(command_text: str, config, brain, local_brain_ai, voice, lock, stop_event) -> str:
+    """Punto de entrada único para un comando de voz o texto. Las órdenes de
+    control (salir/pausar/reiniciar/cambiar de modo) se atienden al instante;
+    todo lo demás (charla, tareas con IA) se despacha a un hilo aparte para
+    que el micrófono/texto sigan activos mientras se genera la respuesta."""
+    fast_status = _handle_fast_intent(command_text, config, brain, local_brain_ai, voice)
+    if fast_status is not None:
+        return fast_status
+
+    thread = threading.Thread(
+        target=_process_slow_command,
+        args=(command_text, config, brain, local_brain_ai, voice, lock, stop_event),
+        daemon=True,
+    )
+    thread.start()
+    return "dispatched"
 
 
 def _report_error(voice, exc: Exception) -> None:
@@ -268,15 +343,20 @@ def _report_error(voice, exc: Exception) -> None:
 
 
 def _handle_cancel_if_requested(text: str, voice) -> bool:
-    """Si el texto es una frase de cancelación, responde al instante (sin tocar
-    el lock ni la IA) y devuelve True. No puede interrumpir a la mitad algo que
-    ya está en curso, pero garantiza que cancelar nunca se quede esperando
-    detrás de algo lento (eso lo cubre el límite de tiempo de las herramientas)."""
+    """Si el texto es una frase de cancelación, responde al instante (sin
+    esperar turno) y devuelve True. Si hay algo procesándose de fondo (ej. una
+    llamada a Spotify colgada), lo marca para que se abandone en cuanto sea
+    posible en vez de esperar a que termine — así "olvídalo" nunca se queda
+    atascado detrás de algo lento."""
     if not _is_cancel(text):
         return False
     print(f"Tú: {text}")
     ui_server.broadcast_transcript("user", text)
-    reply = "Listo, cancelado."
+    if proc.busy_event.is_set():
+        proc.cancel_event.set()
+        reply = "Listo, cancelado. Dime qué necesitas."
+    else:
+        reply = "No hay nada que cancelar ahora mismo."
     ui_server.broadcast_transcript("assistant", reply)
     try:
         voice.speak(reply)
@@ -300,18 +380,29 @@ def _voice_loop(
 
             # Modo conversación: una vez activado, sigue escuchando turno tras
             # turno sin necesitar la palabra clave otra vez, hasta que haya
-            # silencio o el usuario indique que terminó.
+            # silencio o el usuario indique que terminó. El procesamiento con
+            # IA se despacha a otro hilo (ver _handle_command), así que este
+            # bucle nunca deja de escuchar mientras Rochy "piensa".
             while not stop_event.is_set():
                 ui_server.broadcast_state("listening")
                 command_text = listener.listen(timeout=CONVERSATION_TIMEOUT, phrase_time_limit=15)
                 if not command_text:
+                    # Si algo sigue procesándose de fondo, el silencio no cuenta
+                    # como que la conversación terminó — seguimos escuchando.
+                    if proc.busy_event.is_set():
+                        continue
                     break
 
                 if _handle_cancel_if_requested(command_text, voice):
                     continue
 
-                with lock:
-                    status = _handle_command(command_text, config, brain, local_brain_ai, voice)
+                # Dar una orden nueva mientras otra sigue en curso significa
+                # que esa anterior ya no importa (mejor que quedarse esperando
+                # a que termine, o peor, colgada con algo como Spotify).
+                if proc.busy_event.is_set():
+                    proc.cancel_event.set()
+
+                status = _handle_command(command_text, config, brain, local_brain_ai, voice, lock, stop_event)
                 if status == "exit":
                     stop_event.set()
                     break
@@ -335,9 +426,10 @@ def _text_loop(
             continue
         if _handle_cancel_if_requested(text, voice):
             continue
+        if proc.busy_event.is_set():
+            proc.cancel_event.set()
         try:
-            with lock:
-                status = _handle_command(text, config, brain, local_brain_ai, voice)
+            status = _handle_command(text, config, brain, local_brain_ai, voice, lock, stop_event)
             if status == "exit":
                 stop_event.set()
         except Exception as exc:

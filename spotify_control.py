@@ -6,10 +6,14 @@ Spotify abierta en el PC, el móvil o el navegador) — la API solo controla
 una sesión de reproducción que ya existe, no reproduce audio por sí misma.
 """
 
+import os
+
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
 SCOPE = "user-modify-playback-state user-read-playback-state user-read-currently-playing"
+
+CACHE_PATH = ".spotify_cache"
 
 _client = None
 
@@ -25,14 +29,26 @@ def _get_client(config):
             "SPOTIFY_CLIENT_SECRET en tu .env."
         )
 
+    # Sin token guardado, spotipy intentaría abrir un login interactivo (navegador +
+    # esperar la autorización) — eso no puede pasar aquí porque el asistente corre
+    # en segundo plano sin consola, y se quedaría colgado esperando algo que el
+    # usuario nunca podría completar. Mejor fallar rápido con instrucciones claras.
+    if not os.path.exists(CACHE_PATH):
+        raise RuntimeError(
+            "Todavía no conectaste tu cuenta de Spotify. Corre 'python spotify_login.py' "
+            "una vez en una consola para autorizarla, y luego ya puedo controlar tu música."
+        )
+
     auth = SpotifyOAuth(
         client_id=config.spotify_client_id,
         client_secret=config.spotify_client_secret,
         redirect_uri=config.spotify_redirect_uri,
         scope=SCOPE,
-        cache_path=".spotify_cache",
+        cache_path=CACHE_PATH,
     )
-    _client = spotipy.Spotify(auth_manager=auth)
+    # Sin esto, una llamada a la Web API de Spotify que se cuelgue (red lenta,
+    # servidor sin responder) podía bloquear el hilo entero de forma indefinida.
+    _client = spotipy.Spotify(auth_manager=auth, requests_timeout=10)
     return _client
 
 

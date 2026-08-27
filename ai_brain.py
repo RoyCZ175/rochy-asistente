@@ -717,7 +717,7 @@ class AIBrain:
         normales después de rechazar un pedido anterior) — sin reiniciar la app."""
         self.history = [{"role": "system", "content": self._system_content}]
 
-    def ask(self, user_text: str) -> str:
+    def ask(self, user_text: str, cancel_event=None) -> str:
         self.history.append({"role": "user", "content": user_text})
         self._trim_history()
 
@@ -726,6 +726,11 @@ class AIBrain:
         # segundo paso depende del resultado del primero. Seguimos llamando al
         # modelo CON las tools disponibles hasta que responda solo con texto.
         for _ in range(MAX_TOOL_ROUNDS):
+            # Si el usuario canceló (dijo "olvídalo" u otra orden nueva) mientras
+            # esperábamos, no tiene sentido seguir encadenando rondas ni gastar
+            # otra llamada a la IA por una respuesta que ya nadie va a escuchar.
+            if cancel_event is not None and cancel_event.is_set():
+                return None
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=self.history,
@@ -735,6 +740,8 @@ class AIBrain:
                 max_tokens=600,
                 reasoning_effort="medium",
             )
+            if cancel_event is not None and cancel_event.is_set():
+                return None
             message = response.choices[0].message
 
             if not message.tool_calls:
