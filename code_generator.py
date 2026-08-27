@@ -9,6 +9,8 @@ import webbrowser
 
 from groq import Groq
 
+import creation_log
+
 PROJECTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "proyectos")
 
 HOME = os.path.expanduser("~")
@@ -44,10 +46,23 @@ def _safe_name(name: str) -> str:
 
 
 def _resolve_base(location: str):
-    """Devuelve (ruta_base, reconocida). Si la ubicación pedida no coincide con
-    ninguna conocida (ej. el micrófono transcribió mal "Descargas"), cae a la
-    carpeta interna del asistente en vez de inventar una carpeta con un nombre
-    sin sentido en Documentos/Escritorio reales del usuario."""
+    """Devuelve (ruta_base, reconocida).
+
+    Si hay una materia activa en modo estudio, TODO lo que se cree (carpetas,
+    documentos, páginas, scripts) va dentro de la carpeta fija de esa materia
+    — se ignora a propósito el 'location' pedido, para que nunca queden
+    archivos regados fuera de Documentos/RAG_Rochy mientras estás estudiando.
+    Fuera de modo estudio funciona como siempre: si la ubicación pedida no
+    coincide con ninguna conocida (ej. el micrófono transcribió mal
+    "Descargas"), cae a la carpeta interna del asistente en vez de inventar
+    una carpeta con un nombre sin sentido en Documentos/Escritorio reales."""
+    import study_state
+    import study_rag
+
+    subject = study_state.get_subject()
+    if subject is not None:
+        return study_rag.subject_dir(subject), True
+
     key = (location or "").strip().lower()
     if key in BASE_LOCATIONS:
         return BASE_LOCATIONS[key], True
@@ -67,6 +82,7 @@ def create_folder(name: str, location: str = "documentos") -> str:
     base, recognized = _resolve_base(location)
     folder = os.path.join(base, _safe_name(name))
     os.makedirs(folder, exist_ok=True)
+    creation_log.record("folder", folder)
     return f"Carpeta '{_safe_name(name)}' creada en {folder}.{_location_note(location, recognized)}"
 
 
@@ -128,6 +144,7 @@ def create_webpage(config, description: str, name: str = "mi_pagina", location: 
         f.write(code)
 
     webbrowser.open(f"file:///{path}")
+    creation_log.record("webpage", folder)
     return (
         f"Listo, creé tu página web en {folder}\\index.html y la abrí en el navegador."
         f"{_location_note(location, recognized)}"
@@ -148,6 +165,7 @@ def create_script(
     with open(path, "w", encoding="utf-8") as f:
         f.write(code)
 
+    creation_log.record("script", folder)
     return f"Listo, creé tu script en {folder}\\main.{ext}.{_location_note(location, recognized)}"
 
 
@@ -189,4 +207,5 @@ def create_document(config, description: str, name: str = "documento", location:
     except OSError:
         pass
 
+    creation_log.record("document", path)
     return f"Listo, escribí el documento y lo guardé en {path}. Lo abrí para que lo veas.{_location_note(location, recognized)}"

@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import threading
+import time
 import traceback
 import unicodedata
 
@@ -169,10 +170,10 @@ def _classify_control_intent(command_text: str) -> str:
 # carpeta en el explorador. "modo estudio de X" (más abajo) asume que la
 # carpeta ya tiene archivos (ej. si vuelves a estudiar otro día).
 STUDY_CREATE_PATTERNS = (
-    r"cr[eé]a(?:me)? (?:una )?zona de estudio (?:de |para )(.+)",
-    r"hazme (?:una )?zona de estudio (?:de |para )(.+)",
+    r"cr[eé]a(?:me)? (?:la |una |esta )?zona de estudio (?:de |para )(.+)",
+    r"hazme (?:la |una |esta )?zona de estudio (?:de |para )(.+)",
     r"nueva zona de estudio (?:de |para )(.+)",
-    r"cr[eé]a(?:me)? (?:una )?carpeta de estudio (?:de |para )(.+)",
+    r"cr[eé]a(?:me)? (?:la |una |esta )?carpeta de estudio (?:de |para )(.+)",
 )
 STUDY_START_PATTERNS = (
     r"modo estudio de (.+)",
@@ -569,12 +570,23 @@ def _handle_cancel_if_requested(text: str, voice) -> bool:
     return True
 
 
+def _wait_while_speaking(stop_event: threading.Event) -> None:
+    """Pausa aquí mientras Rochy esté hablando (ver processing_state.speaking_event)
+    en vez de escuchar por el micrófono — si no, puede captar su propia voz
+    saliendo por los parlantes y procesarla como si fuera una orden nueva
+    (esto pasó de verdad: "abriendo explorer" hablado se escuchó a sí mismo y
+    volvió a abrir explorer sin parar)."""
+    while proc.speaking_event.is_set() and not stop_event.is_set():
+        time.sleep(0.1)
+
+
 def _voice_loop(
     config, brain, local_brain_ai, voice, listener, lock: threading.Lock, stop_event: threading.Event
 ) -> None:
     while not stop_event.is_set():
         try:
             ui_server.broadcast_state("idle")
+            _wait_while_speaking(stop_event)
             heard = listener.listen(timeout=5, phrase_time_limit=4)
             if not heard or config.wake_word not in heard.lower():
                 continue
@@ -585,9 +597,11 @@ def _voice_loop(
             # turno sin necesitar la palabra clave otra vez, hasta que haya
             # silencio o el usuario indique que terminó. El procesamiento con
             # IA se despacha a otro hilo (ver _handle_command), así que este
-            # bucle nunca deja de escuchar mientras Rochy "piensa".
+            # bucle nunca deja de escuchar mientras Rochy "piensa" — pero SÍ
+            # se pausa mientras habla, para no escucharse a sí misma.
             while not stop_event.is_set():
                 ui_server.broadcast_state("listening")
+                _wait_while_speaking(stop_event)
                 command_text = listener.listen(timeout=CONVERSATION_TIMEOUT, phrase_time_limit=15)
                 if not command_text:
                     # Si algo sigue procesándose de fondo, el silencio no cuenta

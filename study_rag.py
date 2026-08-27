@@ -17,7 +17,12 @@ import shutil
 import unicodedata
 
 HOME = os.path.expanduser("~")
-STUDY_BASE = os.path.join(HOME, "Documents", "estudio")
+# Carpeta fija y única para TODO lo del modo estudio — a propósito, para que
+# nunca queden materias o archivos regados por Documentos/Escritorio/etc.
+# (eso sí puede pasar en modo local/online normal, donde el usuario tiene
+# control total de dónde crear cosas; en modo estudio no: todo vive aquí
+# dentro, organizado por materia).
+STUDY_BASE = os.path.join(HOME, "Documents", "RAG_Rochy")
 
 CHUNK_WORDS = 220
 CHUNK_OVERLAP = 40

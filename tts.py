@@ -11,6 +11,7 @@ import pygame
 import pyttsx3
 
 import connectivity
+import processing_state as proc
 import ui_server
 
 
@@ -24,11 +25,16 @@ class VoiceOutput:
         if not text:
             return
         ui_server.broadcast_state("speaking")
+        # Mientras esto suena por los parlantes, el bucle de voz debe dejar de
+        # escuchar — si no, el micrófono puede captar la propia voz de Rochy
+        # y procesarla como si fuera una orden nueva (retroalimentación).
+        proc.speaking_event.set()
         try:
             if connectivity.is_online() and self._speak_cloud(text):
                 return
             self._speak_local(text)
         finally:
+            proc.speaking_event.clear()
             ui_server.broadcast_state("idle")
 
     def _speak_cloud(self, text: str) -> bool:

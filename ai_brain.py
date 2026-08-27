@@ -7,6 +7,7 @@ from groq import Groq
 
 import code_generator as cg
 import control_signal
+import creation_log
 import google_services as goog
 import memory_store as mem
 import moodle_client as moodle
@@ -481,6 +482,47 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "list_recent_creations",
+            "description": (
+                "Lista lo más reciente que TÚ creaste con create_folder/create_document/create_webpage/"
+                "create_script (nunca archivos que el usuario ya tenía de antes). Úsala si no estás "
+                "seguro de qué fue lo último que creaste antes de borrar algo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "count": {"type": "integer", "description": "Cuántas mostrar. Por defecto 5."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_recent_creations",
+            "description": (
+                "Borra de verdad las N cosas más recientes que TÚ creaste con create_folder/"
+                "create_document/create_webpage/create_script — NUNCA archivos que el usuario ya tenía "
+                "de antes, y NUNCA nada del modo estudio (eso se maneja aparte). Ej.: 'bórrame las dos "
+                "últimas carpetas que creaste' -> count=2, kind='folder'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "count": {"type": "integer", "description": "Cuántas borrar, empezando por lo más reciente."},
+                    "kind": {
+                        "type": "string",
+                        "enum": ["folder", "document", "webpage", "script"],
+                        "description": "Opcional: solo borrar este tipo. Si no se da, borra las N más recientes de cualquier tipo.",
+                    },
+                },
+                "required": ["count"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_webpage",
             "description": (
                 "Genera y guarda en disco una página web real (HTML/CSS/JS) según la "
@@ -604,6 +646,14 @@ cartas, ensayos), abrir el explorador en una carpeta concreta (open_folder) y ve
 de verdad (list_files) — todo esto solo dentro de Documentos, Escritorio, Descargas o la carpeta
 interna del asistente, nunca en rutas arbitrarias del sistema. También puedes crear programas o
 páginas web reales (create_webpage/create_script).
+Si el usuario está en "modo estudio" con una materia activa, create_folder/create_document/
+create_webpage/create_script ignoran automáticamente la ubicación pedida y crean todo dentro de la
+carpeta fija de esa materia — no necesitas preguntarle dónde guardarlo en ese caso.
+Puedes deshacer tus propias creaciones recientes con delete_recent_creations (ej. "bórrame las dos
+últimas carpetas que creaste" -> count=2, kind="folder") y consultar qué creaste con
+list_recent_creations si no estás seguro. Estas dos SOLO afectan cosas creadas con create_folder/
+create_document/create_webpage/create_script — nunca el modo estudio ni archivos que el usuario ya
+tenía de antes.
 REGLA CRÍTICA: NUNCA digas que creaste, escribiste, guardaste o abriste un archivo si no llamaste
 a la herramienta correspondiente de verdad — no existe ninguna otra forma de crear archivos. Si el
 usuario pide guardar algo en un lugar que no reconoces claramente como Documentos/Escritorio/
@@ -688,6 +738,8 @@ def build_tool_functions(config) -> dict:
         ),
         "open_folder": lambda args: cg.open_folder(args.get("location", "documentos")),
         "list_files": lambda args: cg.list_files(args.get("location", "documentos")),
+        "list_recent_creations": lambda args: creation_log.list_recent_text(args.get("count", 5)),
+        "delete_recent_creations": lambda args: creation_log.delete_recent(args["count"], args.get("kind")),
         "create_webpage": lambda args: cg.create_webpage(
             config, args["description"], args.get("name", "mi_pagina"), args.get("location", "proyectos")
         ),

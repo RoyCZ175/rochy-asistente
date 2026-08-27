@@ -12,3 +12,4 @@ google_credentials.json
 google_token.json
 rochy.log
 vosk_model_es/
+creation_log.json
