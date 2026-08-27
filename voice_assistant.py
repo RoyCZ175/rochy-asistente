@@ -63,8 +63,26 @@ def build_response(text: str) -> str:
     return "Puedo ayudarte con tareas y control del sistema, y también seguir una conversación natural."
 
 
-# Segundos de silencio dentro de una conversación de voz antes de volver a esperar la palabra clave.
-CONVERSATION_TIMEOUT = 30
+# Segundos de silencio dentro de una conversación de voz antes de volver a
+# esperar la palabra clave. No es un número fijo: una respuesta larga (varios
+# párrafos hablados) merece más margen para pensar la siguiente pregunta que
+# una respuesta corta ("listo, hecho") — se calcula sumando un extra
+# proporcional a cuánto duró lo último que Rochy dijo (ver
+# processing_state.last_speech_seconds, actualizado en tts.py).
+BASE_CONVERSATION_TIMEOUT = 18.0
+MAX_CONVERSATION_TIMEOUT = 45.0
+EXTRA_TIMEOUT_PER_SPOKEN_SECOND = 0.6
+
+# Antes de dar por terminada la conversación en silencio (lo que se sentía
+# como que Rochy "se desactivaba sola" sin avisar), se pregunta una vez si
+# seguís ahí — le da una segunda oportunidad antes de exigir la palabra
+# clave de nuevo.
+STILL_THERE_PHRASE = "¿Sigues ahí?"
+
+
+def _conversation_timeout() -> float:
+    extra = proc.last_speech_seconds * EXTRA_TIMEOUT_PER_SPOKEN_SECOND
+    return min(MAX_CONVERSATION_TIMEOUT, BASE_CONVERSATION_TIMEOUT + extra)
 
 # Si una tarea (IA + herramientas, o indexar archivos del modo estudio) tarda
 # más que esto sin terminar, se avisa con un acuse de recibo corto — para que
@@ -754,6 +772,7 @@ def _voice_loop(
             # del todo mientras hablaba, no había forma de interrumpirla a
             # mitad de una respuesta larga, y eso se sentía como quedar
             # "bloqueado" varios segundos sin poder decir nada.
+            still_there_asked = False
             while not stop_event.is_set():
                 speaking_now = proc.speaking_event.is_set()
                 in_echo_grace = not speaking_now and (
@@ -774,13 +793,30 @@ def _voice_loop(
                     # propia voz de fondo podría tardar en darse por terminada).
                     command_text = listener.listen(timeout=1.5, phrase_time_limit=3)
                 else:
-                    command_text = listener.listen(timeout=CONVERSATION_TIMEOUT, phrase_time_limit=15)
+                    # Se escucha en dos mitades del tiempo total permitido (ver
+                    # _conversation_timeout, ya no es un número fijo): si la
+                    # primera mitad pasa en silencio, se pregunta "¿sigues
+                    # ahí?" en vez de cortar la conversación sin avisar — solo
+                    # si la SEGUNDA mitad también pasa en silencio se da por
+                    # terminada de verdad.
+                    command_text = listener.listen(timeout=_conversation_timeout() / 2, phrase_time_limit=15)
                 if not command_text:
-                    # Si algo sigue procesándose o hablando, el silencio no
-                    # cuenta como que la conversación terminó — seguimos.
-                    if proc.busy_event.is_set() or proc.speaking_event.is_set():
+                    # Mientras habla (o en el ratito de gracia justo después),
+                    # un silencio corto no significa nada — es solo que esa
+                    # ventana de sondeo es breve a propósito. Antes esto podía
+                    # cortar la conversación entera por accidente: si justo en
+                    # esos 1.5s de gracia no se oía nada Y nada más seguía
+                    # procesándose, se trataba como si el usuario hubiera
+                    # abandonado la conversación de verdad.
+                    if treat_as_speaking or proc.busy_event.is_set() or proc.speaking_event.is_set():
+                        continue
+                    if not still_there_asked:
+                        still_there_asked = True
+                        voice.speak(STILL_THERE_PHRASE)
                         continue
                     break
+
+                still_there_asked = False
 
                 if treat_as_speaking or proc.speaking_event.is_set():
                     # OJO: se filtra si estaba hablando (o recién terminó de
@@ -800,6 +836,10 @@ def _voice_loop(
                         voice.stop_speaking()
                         proc.cancel_event.set()
                         ui_server.broadcast_transcript("assistant", "[interrumpido]")
+                        # Antes solo se veía "[interrumpido]" en el chat, sin
+                        # decir nada en voz — se sentía raro cortarla y que se
+                        # quede en silencio total sin reconocer que entendió.
+                        voice.speak("Entendido, cancelado.")
                     # lo que no sea cancelación se ignora del todo, ni se
                     # registra — es justo lo que se oye mientras habla.
                     continue

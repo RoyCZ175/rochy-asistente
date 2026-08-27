@@ -41,3 +41,9 @@ last_spoken_text = ""
 # voice_assistant.py): el eco físico del parlante puede seguir sonando en el
 # cuarto un instante después de que el estado ya diga "no está hablando".
 speech_ended_at = 0.0
+
+# Cuánto duró (en segundos) lo último que Rochy dijo — ver tts.py. Una
+# respuesta larga merece más margen de silencio antes de dar la conversación
+# por terminada que una respuesta corta (ver CONVERSATION_TIMEOUT en
+# voice_assistant.py, que ya no es un número fijo).
+last_speech_seconds = 0.0

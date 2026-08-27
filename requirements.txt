@@ -19,6 +19,11 @@ google-auth-oauthlib
 google-api-python-client
 vosk
 pyttsx3
+# VAD (detecta si un audio ya capturado suena a voz humana o es solo ruido).
+# El paquete original "webrtcvad" no trae binarios para Windows y necesita
+# Visual C++ Build Tools para compilar desde cero — este fork trae wheels
+# precompilados, mismo import ("import webrtcvad"), mismo uso.
+webrtcvad-wheels
 # modo estudio (RAG): sentence-transformers necesita torch. Instala primero la
 # versión CPU (no hace falta GPU para esto, es liviano):
 #   pip install --index-url https://download.pytorch.org/whl/cpu torch

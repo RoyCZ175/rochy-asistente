@@ -82,6 +82,10 @@ class VoiceOutput:
             # arranque de runAndWait() es la señal de que ya empieza.
             if on_start:
                 on_start()
+            # No hay un archivo de audio que medir aquí (pyttsx3 sintetiza y
+            # habla en un solo paso) — se estima a partir de la cantidad de
+            # palabras, a un ritmo de habla normal (~2.5 palabras/segundo).
+            proc.last_speech_seconds = max(1.0, len(text.split()) / 2.5)
             self._local_engine.say(text)
             self._local_engine.runAndWait()
         except Exception as exc:
@@ -111,6 +115,7 @@ class VoiceOutput:
         # que el texto ya se puede mostrar, para que aparezca justo cuando el
         # audio está listo para sonar, no varios segundos antes.
         envelope = self._compute_envelope(path)
+        proc.last_speech_seconds = len(envelope) * ENVELOPE_STEP_MS / 1000.0 if envelope else 1.0
         pygame.mixer.music.load(path)
         pygame.mixer.music.play()
         if on_start:
