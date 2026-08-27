@@ -32,7 +32,13 @@ class VoiceOutput:
         # vez de arriesgarse a que se pisen entre sí en pygame.mixer.
         self._lock = threading.Lock()
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str, on_start=None) -> None:
+        """on_start (opcional): se llama justo cuando el audio empieza a
+        sonar de verdad — no antes. Sirve para mostrar el texto en el chat
+        EN ESE momento en vez de apenas se generó la respuesta: antes el
+        texto aparecía al instante pero la síntesis tardaba varios segundos
+        en producir sonido, así que para cuando por fin hablaba, ya habías
+        terminado de leer. Ahora texto y voz arrancan juntos."""
         if not text:
             return
         with self._lock:
@@ -42,18 +48,18 @@ class VoiceOutput:
             # y procesarla como si fuera una orden nueva (retroalimentación).
             proc.speaking_event.set()
             try:
-                if connectivity.is_online() and self._speak_cloud(text):
+                if connectivity.is_online() and self._speak_cloud(text, on_start):
                     return
-                self._speak_local(text)
+                self._speak_local(text, on_start)
             finally:
                 proc.speaking_event.clear()
                 ui_server.broadcast_state("idle")
 
-    def _speak_cloud(self, text: str) -> bool:
+    def _speak_cloud(self, text: str, on_start=None) -> bool:
         path = None
         try:
             path = self._synthesize(text)
-            self._play(path)
+            self._play(path, on_start)
             return True
         except Exception as exc:
             print(f"[tts] falló la voz en la nube (Edge TTS): {exc!r}")
@@ -62,11 +68,17 @@ class VoiceOutput:
             if path:
                 self._cleanup(path)
 
-    def _speak_local(self, text: str) -> None:
+    def _speak_local(self, text: str, on_start=None) -> None:
         try:
             if self._local_engine is None:
                 self._local_engine = pyttsx3.init()
                 self._select_spanish_voice(self._local_engine)
+            # pyttsx3 sintetiza y habla en el mismo paso (sin un archivo
+            # intermedio que reproducir aparte), así que aquí sí el texto
+            # puede mostrarse justo antes de pedirle que hable — el propio
+            # arranque de runAndWait() es la señal de que ya empieza.
+            if on_start:
+                on_start()
             self._local_engine.say(text)
             self._local_engine.runAndWait()
         except Exception as exc:
@@ -90,10 +102,16 @@ class VoiceOutput:
         asyncio.run(edge_tts.Communicate(text, self.voice).save(path))
         return path
 
-    def _play(self, path: str) -> None:
+    def _play(self, path: str, on_start=None) -> None:
+        # La síntesis (arriba, antes de llamar a _play) es lo que de verdad
+        # tarda varios segundos en un texto largo — se hace ANTES de avisar
+        # que el texto ya se puede mostrar, para que aparezca justo cuando el
+        # audio está listo para sonar, no varios segundos antes.
         envelope = self._compute_envelope(path)
         pygame.mixer.music.load(path)
         pygame.mixer.music.play()
+        if on_start:
+            on_start()
         # Manda el volumen real de la voz (calculado de antemano) al mismo
         # ritmo en que se reproduce, para que la interfaz pueda hacer que el
         # orbe crezca/encoja siguiendo los altos y bajos de verdad — no una

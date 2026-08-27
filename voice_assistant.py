@@ -510,9 +510,15 @@ def _finish_response(config, voice, response) -> str:
     if response is None:
         return "handled"
 
-    print(f"{config.assistant_name}: {response}")
-    ui_server.broadcast_transcript("assistant", response)
-    voice.speak(response)
+    # El texto se muestra justo cuando el audio empieza a sonar de verdad
+    # (on_start), no apenas se generó la respuesta — antes aparecía al
+    # instante pero la síntesis de voz tardaba varios segundos en un texto
+    # largo, así que para cuando por fin hablaba ya habías terminado de leer.
+    def _on_start():
+        print(f"{config.assistant_name}: {response}")
+        ui_server.broadcast_transcript("assistant", response)
+
+    voice.speak(response, on_start=_on_start)
 
     # Respaldo semántico: si el filtro rápido no detectó nada pero la IA, con
     # el contexto completo, decidió que sí querías pausar/apagar (herramienta
