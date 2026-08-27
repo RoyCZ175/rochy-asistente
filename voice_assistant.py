@@ -23,6 +23,8 @@ import control_signal
 import local_brain
 import mode_state
 import processing_state as proc
+import study_rag
+import study_state
 import system_control as sc
 import ui_server
 
@@ -156,6 +158,128 @@ def _classify_control_intent(command_text: str) -> str:
     return "none"
 
 
+# Patrones para activar/salir/olvidar el "modo estudio" de una materia (ver
+# study_rag.py). El grupo capturado es el nombre de la materia tal cual lo
+# dijo el usuario (con acentos/mayúsculas), para poder hablárselo de vuelta
+# de forma natural — study_rag.py se encarga de normalizarlo para la carpeta.
+STUDY_START_PATTERNS = (
+    r"modo estudio de (.+)",
+    r"modo estudio (.+)",
+    r"estudiemos (?:sobre )?(.+)",
+    r"quiero estudiar (?:sobre )?(.+)",
+    r"estudia conmigo (.+)",
+    r"vamos a estudiar (?:sobre )?(.+)",
+)
+STUDY_STOP_PHRASES = (
+    "sal del modo estudio", "salir del modo estudio", "termina el modo estudio",
+    "deja de estudiar", "termine de estudiar", "ya acabe de estudiar",
+    "acabe de estudiar", "acabamos de estudiar",
+)
+STUDY_FORGET_PATTERNS = (
+    r"olvida (?:el estudio de |lo que sabes de |la materia de |la materia )(.+)",
+    r"borra (?:el estudio de |el indice de |lo indexado de )(.+)",
+)
+
+
+def _extract_subject(text: str, patterns) -> str:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            subject = match.group(1).strip(" .!?¡¿,")
+            if subject:
+                return subject
+    return ""
+
+
+def _classify_study_intent(command_text: str):
+    """Devuelve ('start', materia) / ('stop', None) / ('forget', materia) /
+    ('none', None). Se revisa en texto normalizado solo para las frases fijas
+    (stop) — para 'start'/'forget' se usa el texto original, así el nombre de
+    la materia capturado conserva acentos y mayúsculas para hablarlo de vuelta."""
+    normalized = _normalize_text(command_text)
+
+    if normalized in STUDY_STOP_PHRASES:
+        return "stop", None
+
+    subject = _extract_subject(command_text, STUDY_FORGET_PATTERNS)
+    if subject:
+        return "forget", subject
+
+    subject = _extract_subject(command_text, STUDY_START_PATTERNS)
+    if subject:
+        return "start", subject
+
+    return "none", None
+
+
+def _handle_study_intent(command_text: str, voice, lock, stop_event):
+    """Atiende las órdenes de 'modo estudio' (activar/salir/olvidar). Activar
+    puede tardar unos segundos (indexar archivos nuevos), así que se despacha
+    a un hilo aparte igual que las peticiones a la IA — nunca bloquea el
+    micrófono/texto. Devuelve el estado, o None si el texto no es sobre esto."""
+    kind, subject = _classify_study_intent(command_text)
+    if kind == "none":
+        return None
+
+    print(f"Tú: {command_text}")
+    ui_server.broadcast_transcript("user", command_text)
+
+    if kind == "stop":
+        active = study_state.get_subject()
+        if active is None:
+            reply = "No estabas en modo estudio de ninguna materia."
+        else:
+            study_state.set_subject(None)
+            reply = f"Listo, salimos del modo estudio de {active}."
+        ui_server.broadcast_transcript("assistant", reply)
+        voice.speak(reply)
+        return "handled"
+
+    if kind == "forget":
+        if proc.busy_event.is_set():
+            proc.cancel_event.set()
+        reply = study_rag.forget_subject(subject)
+        if study_state.get_subject() and _normalize_text(study_state.get_subject()) == _normalize_text(subject):
+            study_state.set_subject(None)
+        ui_server.broadcast_transcript("assistant", reply)
+        voice.speak(reply)
+        return "handled"
+
+    # kind == "start"
+    if proc.busy_event.is_set():
+        proc.cancel_event.set()
+    thread = threading.Thread(
+        target=_process_study_start,
+        args=(subject, voice, lock, stop_event),
+        daemon=True,
+    )
+    thread.start()
+    return "dispatched"
+
+
+def _process_study_start(subject: str, voice, lock, stop_event) -> None:
+    with lock:
+        proc.cancel_event.clear()
+        proc.busy_event.set()
+        ui_server.broadcast_state("thinking")
+        try:
+            summary = study_rag.index_subject(subject)
+            if "No encontré archivos" not in summary:
+                study_state.set_subject(subject)
+                reply = f"{summary} Modo estudio de {subject} activado."
+            else:
+                reply = summary
+        except Exception as exc:
+            reply = f"No pude preparar el modo estudio de '{subject}': {exc}"
+        finally:
+            proc.busy_event.clear()
+            ui_server.broadcast_state("idle")
+
+    print(f"Rochy: {reply}")
+    ui_server.broadcast_transcript("assistant", reply)
+    voice.speak(reply)
+
+
 def _handle_fast_intent(command_text: str, config, brain, local_brain_ai, voice):
     """Atiende al instante las órdenes de control (salir/pausar/reiniciar/
     cambiar de modo) — ninguna necesita IA, así que nunca tardan. Devuelve el
@@ -233,22 +357,37 @@ def _generate_response(command_text: str, config, brain, local_brain_ai, cancel_
     if response is not None:
         return response
 
+    # Modo estudio activo: busca los fragmentos de tus apuntes más parecidos
+    # a la pregunta y se los pega como contexto real antes de mandarla a la
+    # IA (local o nube) — así responde con lo que de verdad dicen tus
+    # archivos, en vez de solo lo que el modelo ya sabía de memoria.
+    ai_input = command_text
+    subject = study_state.get_subject()
+    if subject is not None:
+        chunks = study_rag.search(subject, command_text)
+        if chunks:
+            context_block = "\n\n".join(f"- {c}" for c in chunks)
+            ai_input = (
+                f"Contexto de mis apuntes de {subject} (úsalo si es relevante para responder, "
+                f"y dilo con naturalidad si no lo es):\n{context_block}\n\nPregunta: {command_text}"
+            )
+
     if mode_state.is_forced_local() and local_brain_ai is not None:
-        return local_brain_ai.ask(command_text, cancel_event=cancel_event)
+        return local_brain_ai.ask(ai_input, cancel_event=cancel_event)
 
     if connectivity.is_online():
         try:
-            return brain.ask(command_text, cancel_event=cancel_event)
+            return brain.ask(ai_input, cancel_event=cancel_event)
         except Exception as exc:
             # Groq puede fallar aunque haya internet (cupo agotado, caída del
             # servicio, etc.) — si hay IA local, la usamos en vez de solo fallar.
             if local_brain_ai is not None:
                 print(f"[aviso] Groq falló ({exc}), uso la IA local de respaldo.")
-                return local_brain_ai.ask(command_text, cancel_event=cancel_event)
+                return local_brain_ai.ask(ai_input, cancel_event=cancel_event)
             raise
 
     if local_brain_ai is not None:
-        return local_brain_ai.ask(command_text, cancel_event=cancel_event)
+        return local_brain_ai.ask(ai_input, cancel_event=cancel_event)
 
     return (
         "No tengo internet ni un modelo de IA local instalado ahora mismo. "
@@ -309,6 +448,10 @@ def _handle_command(command_text: str, config, brain, local_brain_ai, voice, loc
     control (salir/pausar/reiniciar/cambiar de modo) se atienden al instante;
     todo lo demás (charla, tareas con IA) se despacha a un hilo aparte para
     que el micrófono/texto sigan activos mientras se genera la respuesta."""
+    study_status = _handle_study_intent(command_text, voice, lock, stop_event)
+    if study_status is not None:
+        return study_status
+
     fast_status = _handle_fast_intent(command_text, config, brain, local_brain_ai, voice)
     if fast_status is not None:
         return fast_status

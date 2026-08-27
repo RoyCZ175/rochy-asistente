@@ -19,3 +19,10 @@ google-auth-oauthlib
 google-api-python-client
 vosk
 pyttsx3
+# modo estudio (RAG): sentence-transformers necesita torch. Instala primero la
+# versión CPU (no hace falta GPU para esto, es liviano):
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch
+sentence-transformers
+pypdf
+python-docx
+numpy

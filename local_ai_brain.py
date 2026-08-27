@@ -151,11 +151,19 @@ class LocalAIBrain:
             "model": self.model,
             "messages": self.history,
             "stream": False,
-            # Con la temperatura por defecto del modelo (más alta, pensada para
-            # charla), un modelo de 7B era inconsistente decidiendo cuándo usar
-            # una herramienta (a veces inventaba una respuesta en vez de llamarla,
-            # ej. una hora falsa en vez de get_time) — con esto es mucho más fiable.
-            "options": {"temperature": 0.2},
+            "options": {
+                # Con la temperatura por defecto del modelo (más alta, pensada para
+                # charla), un modelo de 7B era inconsistente decidiendo cuándo usar
+                # una herramienta (a veces inventaba una respuesta en vez de llamarla,
+                # ej. una hora falsa en vez de get_time) — con esto es mucho más fiable.
+                "temperature": 0.2,
+                # Sin fijarlo, Ollama usa una ventana de contexto chica por
+                # defecto — con el modo estudio (RAG) pegando fragmentos de
+                # apuntes a cada pregunta, eso podía truncar justo el contexto
+                # que queríamos darle. Medido en esta PC: con 16384 el modelo
+                # usa ~5.3GB de VRAM (de 8GB), deja de sobra para lo demás.
+                "num_ctx": 16384,
+            },
         }
         if tools:
             payload["tools"] = tools
