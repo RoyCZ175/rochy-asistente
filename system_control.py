@@ -157,13 +157,14 @@ def scroll(amount: int) -> str:
 
 
 def _volume_interface():
-    from comtypes import CLSCTX_ALL
-    from ctypes import cast, POINTER
-    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+    # Versiones nuevas de pycaw envuelven el dispositivo en AudioDevice y ya
+    # exponen el endpoint activado directamente vía .EndpointVolume — llamar
+    # a .Activate(...) a mano (como pedían versiones viejas) ya no aplica y
+    # rompía con "'AudioDevice' object has no attribute 'Activate'".
+    from pycaw.pycaw import AudioUtilities
 
     devices = AudioUtilities.GetSpeakers()
-    interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-    return cast(interface, POINTER(IAudioEndpointVolume))
+    return devices.EndpointVolume
 
 
 def set_volume(level: int) -> str:

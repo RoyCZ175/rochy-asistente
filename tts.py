@@ -37,7 +37,8 @@ class VoiceOutput:
             path = self._synthesize(text)
             self._play(path)
             return True
-        except Exception:
+        except Exception as exc:
+            print(f"[tts] falló la voz en la nube (Edge TTS): {exc!r}")
             return False
         finally:
             if path:
@@ -50,8 +51,10 @@ class VoiceOutput:
                 self._select_spanish_voice(self._local_engine)
             self._local_engine.say(text)
             self._local_engine.runAndWait()
-        except Exception:
-            pass  # sin ninguna voz de salida disponible, pero no debe romper la app
+        except Exception as exc:
+            # no debe romper la app si no hay ninguna voz de salida disponible,
+            # pero SÍ debe quedar registrado — antes esto fallaba en silencio total.
+            print(f"[tts] falló la voz local (pyttsx3): {exc!r}")
 
     def _select_spanish_voice(self, engine) -> None:
         try:
