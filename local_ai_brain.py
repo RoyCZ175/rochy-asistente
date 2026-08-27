@@ -41,6 +41,10 @@ Tienes herramientas para tareas básicas del PC (abrir apps, hora, volumen, tecl
 carpetas) y para recordar datos del usuario. Las que necesitan internet (Spotify, Google, la
 universidad) probablemente no funcionen ahora mismo si de verdad no hay conexión — si fallan,
 dilo con naturalidad.
+REGLA CRÍTICA: web_search solo abre una pestaña en el navegador, nunca te devuelve lo que hay en
+la página. Si te hacen una pregunta o piden una explicación, respóndela tú directamente con lo que
+sabes — NUNCA llames a web_search para "buscar la respuesta". Solo úsala si piden explícitamente
+que ABRAS algo en el navegador, y una sola vez por pedido.
 NO tienes disponibles create_document, create_webpage ni create_script (necesitan generar el
 contenido con IA en la nube, y eso no aplica en modo local): si te piden crear un documento,
 página web o script, dilo claramente y sugiere pasar a "modo online" en vez de intentarlo o de
@@ -118,6 +122,7 @@ class LocalAIBrain:
             name = call["function"]["name"]
             raw_args = call["function"].get("arguments", {})
             args = raw_args if isinstance(raw_args, dict) else json.loads(raw_args or "{}")
+            print(f"[tool] {name}({args})")
 
             func = self.functions.get(name)
             if not func:

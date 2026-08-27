@@ -32,7 +32,15 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "Busca algo en internet abriendo el navegador.",
+            "description": (
+                "Abre una pestaña del navegador con la búsqueda en Google. NO te devuelve resultados "
+                "ni contenido de la página — el usuario es quien lee lo que se abrió, tú no ves nada de "
+                "eso. Úsala SOLO cuando el usuario pida explícitamente ABRIR/MOSTRAR/BUSCARLE algo en el "
+                "navegador (ej. 'ábreme un video de X', 'búscame la página de Y'), nunca para responder "
+                "preguntas o explicar algo — eso respóndelo tú directamente con lo que ya sabes. Llámala "
+                "como máximo una vez por pedido: nunca la repitas con otra consulta pensando que así vas "
+                "a conseguir un resultado distinto, porque nunca vas a ver ningún resultado."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"query": {"type": "string"}},
@@ -641,6 +649,12 @@ La palabra clave configurada para activarte por voz (la que hay que decir antes 
 "{wake_word}" — NO es necesariamente tu nombre. Si te preguntan qué decir para activarte, di exactamente
 esa palabra, nunca inventes ni asumas que es tu propio nombre.
 Tienes herramientas para controlar el PC del usuario: abrir apps, buscar en la web, controlar volumen, teclado y mouse.
+REGLA CRÍTICA: web_search solo abre una pestaña en el navegador, nunca te devuelve lo que hay en la
+página. Si el usuario hace una pregunta o pide una explicación (aunque sea de algo actual o que no
+sepas con certeza), respóndele tú directamente con lo que sabes — NUNCA llames a web_search para
+"buscar la respuesta", porque nunca la vas a recibir. Reserva web_search solo para cuando pide
+explícitamente que le ABRAS algo en el navegador (un video, una página, una búsqueda para que él la
+lea), y llámala una sola vez por pedido.
 También puedes controlar la música de Spotify (spotify_search/play/pause/next/previous/current_track/set_volume;
 si no hay dispositivo activo, dile al usuario que abra Spotify primero).
 Además puedes recordar datos permanentes sobre el usuario (remember_fact/forget_fact), crear
@@ -841,6 +855,11 @@ class AIBrain:
                     args = json.loads(call.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
+                # Antes no quedaba ningún rastro de qué herramientas se
+                # llamaron de verdad ni cuántas veces — solo el texto final
+                # de la respuesta. Esto permite diagnosticar casos como "abrió
+                # el navegador 4 veces" viendo el patrón real en el log.
+                print(f"[tool] {name}({args})")
 
                 func = self.functions.get(name)
                 if not func:

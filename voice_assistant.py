@@ -990,7 +990,6 @@ def run() -> None:
         width=1080,
         height=820,
         background_color="#05060b",
-        on_top=True,
         js_api=ui_bridge.StudyFilesApi(),
     )
 
