@@ -63,6 +63,20 @@ def broadcast_transcript(role: str, text: str) -> None:
     _broadcast({"type": "transcript", "role": role, "text": text})
 
 
+def broadcast_mode(ai_mode: str, study_subject) -> None:
+    """Le avisa a la interfaz qué modo de IA está activo (local/online) y qué
+    materia de 'modo estudio' está activa (o None si ninguna), para que lo
+    muestre en la barra de estado sin que el usuario tenga que preguntarlo."""
+    _broadcast({"type": "mode_update", "ai_mode": ai_mode, "study_subject": study_subject})
+
+
+def broadcast_open_file_picker(subject: str) -> None:
+    """Le pide a la interfaz que abra el selector nativo de archivos para esa
+    materia — la propia interfaz es quien debe llamar a la función expuesta
+    (ui_bridge.py) para que pywebview maneje bien el diálogo nativo."""
+    _broadcast({"type": "open_file_picker", "subject": subject})
+
+
 def _broadcast(payload: dict) -> None:
     if _loop is None or not _clients:
         return

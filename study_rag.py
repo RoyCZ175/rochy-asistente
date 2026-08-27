@@ -54,6 +54,12 @@ def subject_dir(subject: str) -> str:
     return os.path.join(STUDY_BASE, _safe_name(subject))
 
 
+def ensure_subject_folder(subject: str) -> str:
+    sdir = subject_dir(subject)
+    os.makedirs(sdir, exist_ok=True)
+    return sdir
+
+
 def _index_dir(sdir: str) -> str:
     return os.path.join(sdir, ".rag_index")
 
@@ -192,6 +198,46 @@ def index_subject(subject: str) -> str:
         f"Listo, '{subject}' indexado: {len(files)} archivo(s), {len(all_chunks)} fragmentos en total "
         f"({len(new_or_changed)} nuevo(s) o actualizado(s))."
     )
+
+
+FILE_PICKER_TYPES = ("Documentos de estudio (*.pdf;*.docx;*.txt;*.md)",)
+
+
+def pick_and_copy_files(subject: str) -> str:
+    """Abre el selector nativo de archivos de Windows (el mismo de siempre,
+    el que usas para adjuntar algo en cualquier programa) y copia lo que
+    elijas a la carpeta de esa materia. Como es una app de escritorio en tu
+    propia PC, no hace falta "subir" nada a ningún lado — Python ya tiene
+    acceso directo a esos archivos una vez los eliges, solo los copia.
+
+    IMPORTANTE sobre hilos: esta función SIEMPRE debe llamarse desde un
+    método expuesto a la interfaz (ver ui_bridge.py), nunca desde un hilo de
+    Python que nosotros creamos directamente — pywebview solo garantiza que
+    el diálogo nativo funcione bien si se invoca por ese camino."""
+    import webview
+
+    dest = subject_dir(subject)
+    os.makedirs(dest, exist_ok=True)
+
+    window = webview.windows[0]
+    paths = window.create_file_dialog(
+        webview.FileDialog.OPEN, allow_multiple=True, file_types=FILE_PICKER_TYPES
+    )
+    if not paths:
+        return f"No elegiste ningún archivo para '{subject}'."
+
+    copied = 0
+    for path in paths:
+        try:
+            shutil.copy(path, dest)
+            copied += 1
+        except Exception as exc:
+            print(f"[study_rag] no pude copiar {path}: {exc}")
+
+    if copied == 0:
+        return f"No pude copiar los archivos que elegiste para '{subject}'."
+
+    return f"Copié {copied} archivo(s) a '{subject}'. {index_subject(subject)}"
 
 
 def search(subject: str, query: str, top_k: int = TOP_K) -> list:

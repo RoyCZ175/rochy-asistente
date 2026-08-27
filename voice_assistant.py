@@ -158,10 +158,22 @@ def _classify_control_intent(command_text: str) -> str:
     return "none"
 
 
-# Patrones para activar/salir/olvidar el "modo estudio" de una materia (ver
-# study_rag.py). El grupo capturado es el nombre de la materia tal cual lo
-# dijo el usuario (con acentos/mayúsculas), para poder hablárselo de vuelta
-# de forma natural — study_rag.py se encarga de normalizarlo para la carpeta.
+# Patrones para crear/activar/salir/olvidar el "modo estudio" de una materia
+# (ver study_rag.py). El grupo capturado es el nombre de la materia tal cual
+# lo dijo el usuario (con acentos/mayúsculas), para poder hablárselo de
+# vuelta de forma natural — study_rag.py normaliza esto para la carpeta.
+#
+# "crear zona de estudio" es la vía pensada para alguien que recién empieza:
+# crea la carpeta Y abre de una el selector de archivos de Windows para que
+# elijas tus PDFs/apuntes ahí mismo, sin tener que ir manualmente a buscar la
+# carpeta en el explorador. "modo estudio de X" (más abajo) asume que la
+# carpeta ya tiene archivos (ej. si vuelves a estudiar otro día).
+STUDY_CREATE_PATTERNS = (
+    r"cr[eé]a(?:me)? (?:una )?zona de estudio (?:de |para )(.+)",
+    r"hazme (?:una )?zona de estudio (?:de |para )(.+)",
+    r"nueva zona de estudio (?:de |para )(.+)",
+    r"cr[eé]a(?:me)? (?:una )?carpeta de estudio (?:de |para )(.+)",
+)
 STUDY_START_PATTERNS = (
     r"modo estudio de (.+)",
     r"modo estudio (.+)",
@@ -192,10 +204,11 @@ def _extract_subject(text: str, patterns) -> str:
 
 
 def _classify_study_intent(command_text: str):
-    """Devuelve ('start', materia) / ('stop', None) / ('forget', materia) /
-    ('none', None). Se revisa en texto normalizado solo para las frases fijas
-    (stop) — para 'start'/'forget' se usa el texto original, así el nombre de
-    la materia capturado conserva acentos y mayúsculas para hablarlo de vuelta."""
+    """Devuelve ('create', materia) / ('start', materia) / ('stop', None) /
+    ('forget', materia) / ('none', None). Se revisa en texto normalizado solo
+    para las frases fijas (stop) — para el resto se usa el texto original,
+    así el nombre de la materia capturado conserva acentos y mayúsculas para
+    hablarlo de vuelta."""
     normalized = _normalize_text(command_text)
 
     if normalized in STUDY_STOP_PHRASES:
@@ -204,6 +217,10 @@ def _classify_study_intent(command_text: str):
     subject = _extract_subject(command_text, STUDY_FORGET_PATTERNS)
     if subject:
         return "forget", subject
+
+    subject = _extract_subject(command_text, STUDY_CREATE_PATTERNS)
+    if subject:
+        return "create", subject
 
     subject = _extract_subject(command_text, STUDY_START_PATTERNS)
     if subject:
@@ -231,8 +248,10 @@ def _handle_study_intent(command_text: str, voice, lock, stop_event):
         else:
             study_state.set_subject(None)
             reply = f"Listo, salimos del modo estudio de {active}."
+        print(f"Rochy: {reply}")
         ui_server.broadcast_transcript("assistant", reply)
         voice.speak(reply)
+        _broadcast_mode()
         return "handled"
 
     if kind == "forget":
@@ -241,8 +260,26 @@ def _handle_study_intent(command_text: str, voice, lock, stop_event):
         reply = study_rag.forget_subject(subject)
         if study_state.get_subject() and _normalize_text(study_state.get_subject()) == _normalize_text(subject):
             study_state.set_subject(None)
+        print(f"Rochy: {reply}")
         ui_server.broadcast_transcript("assistant", reply)
         voice.speak(reply)
+        _broadcast_mode()
+        return "handled"
+
+    if kind == "create":
+        # Solo crea la carpeta (instantáneo) y le pide a la INTERFAZ que abra
+        # el selector de archivos — nunca lo abrimos nosotros directamente
+        # desde este hilo (ver study_rag.pick_and_copy_files). El copiado e
+        # indexado de verdad pasa después, cuando la interfaz responda.
+        study_rag.ensure_subject_folder(subject)
+        reply = (
+            f"Listo, creé la zona de estudio de {subject}. Elige tus archivos (PDF, Word o texto) "
+            "en la ventana que se va a abrir."
+        )
+        print(f"Rochy: {reply}")
+        ui_server.broadcast_transcript("assistant", reply)
+        voice.speak(reply)
+        ui_server.broadcast_open_file_picker(subject)
         return "handled"
 
     # kind == "start"
@@ -278,6 +315,16 @@ def _process_study_start(subject: str, voice, lock, stop_event) -> None:
     print(f"Rochy: {reply}")
     ui_server.broadcast_transcript("assistant", reply)
     voice.speak(reply)
+    _broadcast_mode()
+
+
+def _broadcast_mode() -> None:
+    """Le avisa a la interfaz el modo de IA actual (local/online) y la
+    materia activa en modo estudio (o ninguna), para que lo muestre en la
+    barra de estado — así el usuario ve en qué modo está sin tener que
+    preguntarlo por voz."""
+    ai_mode = "local" if mode_state.is_forced_local() else "online"
+    ui_server.broadcast_mode(ai_mode, study_state.get_subject())
 
 
 def _handle_fast_intent(command_text: str, config, brain, local_brain_ai, voice):
@@ -331,6 +378,7 @@ def _handle_fast_intent(command_text: str, config, brain, local_brain_ai, voice)
         print(f"{config.assistant_name}: {reply} [modo local forzado]")
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
+        _broadcast_mode()
         return "handled"
 
     if intent == "force_online":
@@ -339,6 +387,7 @@ def _handle_fast_intent(command_text: str, config, brain, local_brain_ai, voice)
         print(f"{config.assistant_name}: {reply} [modo local desactivado]")
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
+        _broadcast_mode()
         return "handled"
 
     return None
@@ -614,6 +663,7 @@ def _assistant_loop(window) -> None:
 
     print(f"{config.assistant_name} está en línea. Di '{config.wake_word}' o escríbele para activarlo.")
     voice.speak(f"{config.assistant_name} en línea. Estoy escuchando.")
+    _broadcast_mode()  # para que la interfaz muestre el modo correcto desde que conecta
 
     lock = threading.Lock()
     stop_event = threading.Event()
@@ -672,14 +722,17 @@ def run() -> None:
             print(f"{assistant_name} ya está abierto en otra ventana.")
         return
 
+    import ui_bridge
+
     ui_server.start()
     window = webview.create_window(
         assistant_name,
         INTERFACE_PATH,
         width=380,
-        height=620,
+        height=680,
         background_color="#05070d",
         on_top=True,
+        js_api=ui_bridge.StudyFilesApi(),
     )
 
     # Cerrar con la X de la ventana no pasa por el bucle de voz/texto (que

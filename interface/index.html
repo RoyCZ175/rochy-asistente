@@ -26,7 +26,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 14px 0 6px 0;
+    padding: 12px 0 4px 0;
     flex: 0 0 auto;
   }
   canvas#orb {
@@ -47,6 +47,30 @@
     color: #9fd8ff;
     text-shadow: 0 0 8px currentColor;
   }
+
+  /* --- Barra de estado: en qué modo está Rochy ahora mismo, para no tener
+     que preguntarle o adivinarlo --- */
+  #statusBar {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 0 10px 8px 10px;
+    flex: 0 0 auto;
+  }
+  .statusChip {
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    border: 1px solid #1c2a3f;
+    background: #0e1421;
+    color: #9fd8ff;
+    white-space: nowrap;
+  }
+  .statusChip.local { border-color: #ffb03c66; color: #ffcd7a; }
+  .statusChip.online { border-color: #4dff9166; color: #7affb0; }
+  .statusChip.study { border-color: #3d7dff66; color: #9fc4ff; cursor: default; }
 
   /* --- Transcript --- */
   #log {
@@ -129,8 +153,9 @@
   #controlRow {
     display: flex;
     justify-content: center;
-    gap: 8px;
-    padding: 0 0 10px 0;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 8px 10px 8px;
     flex: 0 0 auto;
   }
   .ctrlBtn {
@@ -141,32 +166,119 @@
     border: 1px solid #1c2a3f;
     color: #9fd8ff;
     border-radius: 8px;
-    padding: 5px 11px;
-    font-size: 11px;
-    letter-spacing: 0.5px;
+    padding: 5px 10px;
+    font-size: 10.5px;
+    letter-spacing: 0.3px;
     cursor: pointer;
   }
   .ctrlBtn:hover {
     border-color: #3d7dff;
     background: #10182a;
   }
+  .ctrlBtn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
   #powerBtn:hover {
     border-color: #ff4d6d;
     color: #ff8fa3;
   }
+  #helpBtn.active, #modeBtn.active {
+    border-color: #3d7dff;
+    background: #10182a;
+  }
+
+  /* --- Panel de ayuda: pensado para alguien que nunca ha usado Rochy y no
+     sabe qué frases decir. Empieza oculto, se abre con el botón "❓ Ayuda". --- */
+  #helpPanel {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0 10px 10px 10px;
+    padding: 12px 14px;
+    background: #0b101c;
+    border: 1px solid #1c2a3f;
+    border-radius: 10px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    max-height: 46vh;
+    overflow-y: auto;
+  }
+  #helpPanel.open { display: flex; }
+  #helpPanel h4 {
+    margin: 0 0 4px 0;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #9fd8ff;
+    opacity: 0.85;
+  }
+  #helpPanel p {
+    margin: 0 0 8px 0;
+    opacity: 0.9;
+  }
+  #helpPanel code {
+    display: inline-block;
+    background: #14304d;
+    color: #d8ecff;
+    border-radius: 5px;
+    padding: 1px 6px;
+    margin: 1px 0;
+    font-size: 11px;
+  }
+  #helpPanel .helpSection:last-child p:last-child { margin-bottom: 0; }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="orbWrap">
     <div id="assistantName">ROCHY</div>
-    <canvas id="orb" width="130" height="130"></canvas>
+    <canvas id="orb" width="120" height="120"></canvas>
     <div id="stateLabel">EN ESPERA</div>
   </div>
 
+  <!-- Chips de estado: qué modo de IA está activo y si hay una materia de
+       estudio activa. Se actualizan solos cuando algo cambia (ver mensajes
+       "mode_update" del WebSocket) — nunca hay que preguntarle a Rochy en
+       qué modo está. -->
+  <div id="statusBar">
+    <span class="statusChip online" id="aiModeChip">🌐 En línea</span>
+  </div>
+
   <div id="controlRow">
-    <button class="ctrlBtn" id="pauseBtn" title="Deja de escuchar activamente, la app se queda abierta">⏸ Pausar</button>
-    <button class="ctrlBtn" id="powerBtn" title="Cierra la aplicación por completo">⏻ Apagar</button>
+    <button class="ctrlBtn" id="modeBtn" title="Cambia entre modo en línea (más completo) y modo local (ahorra datos, sin internet)">🌐 Cambiar modo</button>
+    <button class="ctrlBtn" id="studyBtn" title="Crea una zona de estudio nueva y elige tus apuntes">📚 Estudiar</button>
+    <button class="ctrlBtn" id="uploadBtn" title="Agrega más archivos a la materia que tengas activa" disabled>📎 Agregar archivos</button>
+    <button class="ctrlBtn" id="helpBtn" title="¿Qué le puedo decir a Rochy?">❓ Ayuda</button>
+  </div>
+
+  <!-- Ayuda en español sencillo, sin tecnicismos: pensada para que alguien
+       que jamás ha usado Rochy sepa exactamente qué escribir o decir. -->
+  <div id="helpPanel">
+    <div class="helpSection">
+      <h4>Hablar con Rochy</h4>
+      <p>Dile "rochy" en voz alta y espera a que responda "Dime", o simplemente escribe tu mensaje abajo y presiona Enter. No hace falta decir nada especial para charlar o pedir tareas normales (abrir programas, buscar algo, la hora, el volumen, etc.).</p>
+    </div>
+    <div class="helpSection">
+      <h4>Modo local vs. modo en línea</h4>
+      <p><b>En línea</b> usa internet y da las respuestas más completas. <b>Local</b> usa la IA de tu propia PC — no gasta datos ni depende de internet, pero es un poco más simple.</p>
+      <p>Di <code>modo local</code> para ahorrar, o <code>modo online</code> para volver al modo completo. También puedes usar el botón "🌐 Cambiar modo".</p>
+    </div>
+    <div class="helpSection">
+      <h4>Modo estudio</h4>
+      <p>Sirve para que Rochy responda preguntas usando tus propios apuntes (PDF, Word o texto), no solo lo que ya sabe de memoria.</p>
+      <p>Di <code>créame zona de estudio para [materia]</code> (ej. "créame zona de estudio para redes neuronales") — se abrirá una ventana para que elijas tus archivos desde tu PC. También puedes usar el botón "📚 Estudiar".</p>
+      <p>Cuando termines, di <code>sal del modo estudio</code>. Si quieres que olvide lo aprendido de una materia (sin borrar tus archivos), di <code>olvida el estudio de [materia]</code>.</p>
+      <p>Para agregar más archivos después, usa el botón "📎 Agregar archivos" mientras esa materia esté activa.</p>
+    </div>
+    <div class="helpSection">
+      <h4>Si Rochy se equivoca o tarda</h4>
+      <p>Di <code>olvídalo</code> o <code>cancela</code> en cualquier momento para que deje de hacer lo que estaba haciendo, sin tener que esperar a que termine.</p>
+    </div>
+    <div class="helpSection">
+      <h4>Pausar o cerrar</h4>
+      <p>El botón "⏸ Pausar" hace que deje de escuchar activamente (la ventana sigue abierta). El botón "⏻ Apagar" cierra la aplicación por completo. También puedes decir "descansa" o "apágate".</p>
+    </div>
   </div>
 
   <div id="log"></div>
@@ -174,6 +286,10 @@
   <div id="inputRow">
     <input id="textInput" type="text" placeholder="Escríbele si la voz falla…" autocomplete="off">
     <button id="sendBtn">Enviar</button>
+  </div>
+  <div id="controlRow">
+    <button class="ctrlBtn" id="pauseBtn" title="Deja de escuchar activamente, la app se queda abierta">⏸ Pausar</button>
+    <button class="ctrlBtn" id="powerBtn" title="Cierra la aplicación por completo">⏻ Apagar</button>
   </div>
   <div id="connLabel">conectando…</div>
 </div>
@@ -205,7 +321,7 @@ function lerp(a, b, t) { return a + (b - a) * t; }
 // pequeñas partículas orbitando el núcleo
 const PARTICLES = Array.from({ length: 14 }, (_, i) => ({
   angle: (i / 14) * Math.PI * 2,
-  radius: 40 + Math.random() * 12,
+  radius: 36 + Math.random() * 11,
   speed: 0.2 + Math.random() * 0.3,
   size: 1 + Math.random() * 1.5,
 }));
@@ -219,7 +335,7 @@ function step(now) {
   ctx.clearRect(0, 0, W, H);
   const [r, g, b] = current.color;
 
-  const coreR = 22 + Math.sin(now / 450 * current.pulse) * 8 * current.amplitude;
+  const coreR = 20 + Math.sin(now / 450 * current.pulse) * 7 * current.amplitude;
 
   const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2.6);
   grad.addColorStop(0, `rgba(${r},${g},${b},0.65)`);
@@ -262,6 +378,42 @@ function addBubble(role, text) {
   log.scrollTop = log.scrollHeight;
 }
 
+// --- Estado actual conocido por la interfaz (llega por WebSocket cada vez
+// que algo cambia — ver _broadcast_mode en voice_assistant.py) ---
+let currentAiMode = 'online';
+let currentStudySubject = null;
+
+function updateStatusBar() {
+  const bar = document.getElementById('statusBar');
+  const modeChip = document.getElementById('aiModeChip');
+
+  if (currentAiMode === 'local') {
+    modeChip.textContent = '💻 Modo local (ahorro)';
+    modeChip.className = 'statusChip local';
+  } else {
+    modeChip.textContent = '🌐 En línea';
+    modeChip.className = 'statusChip online';
+  }
+
+  // el chip de materia se agrega/quita dinámicamente según haya o no una activa
+  let subjectChip = document.getElementById('studySubjectChip');
+  if (currentStudySubject) {
+    if (!subjectChip) {
+      subjectChip = document.createElement('span');
+      subjectChip.id = 'studySubjectChip';
+      subjectChip.className = 'statusChip study';
+      bar.appendChild(subjectChip);
+    }
+    subjectChip.textContent = '📚 Estudiando: ' + currentStudySubject;
+  } else if (subjectChip) {
+    subjectChip.remove();
+  }
+
+  // "Agregar archivos" solo tiene sentido si hay una materia activa ahora mismo
+  document.getElementById('uploadBtn').disabled = !currentStudySubject;
+}
+updateStatusBar();
+
 // --- WebSocket ---
 let ws;
 function connect() {
@@ -278,14 +430,39 @@ function connect() {
   ws.onmessage = (event) => {
     let data;
     try { data = JSON.parse(event.data); } catch (e) { return; }
+
     if (data.type === 'state' && data.state) {
       setState(data.state);
     } else if (data.type === 'transcript' && data.text) {
       addBubble(data.role, data.text);
+    } else if (data.type === 'mode_update') {
+      currentAiMode = data.ai_mode || 'online';
+      currentStudySubject = data.study_subject || null;
+      updateStatusBar();
+    } else if (data.type === 'open_file_picker' && data.subject) {
+      // Rochy ya creó la carpeta de la materia; nos pide que abramos el
+      // selector nativo de Windows para elegir qué archivos copiar ahí.
+      openFilePicker(data.subject);
     }
   };
 }
 connect();
+
+// --- Selector nativo de archivos (modo estudio) ---
+// Pasa SIEMPRE por window.pywebview.api, nunca directo desde Python en un
+// hilo aparte — así pywebview maneja bien el diálogo nativo de Windows.
+function openFilePicker(subject) {
+  if (!window.pywebview || !window.pywebview.api) {
+    // La interfaz todavía no terminó de conectar con Python (pasa a veces
+    // justo al abrir la app) — reintenta en un momento.
+    setTimeout(() => openFilePicker(subject), 300);
+    return;
+  }
+  window.pywebview.api.pick_and_copy(subject).then((result) => {
+    // La respuesta (cuántos archivos se copiaron, etc.) ya la anuncia Rochy
+    // por su cuenta (voz + burbuja de chat) — aquí no hace falta hacer nada más.
+  });
+}
 
 // --- Entrada de texto ---
 const input = document.getElementById('textInput');
@@ -312,6 +489,39 @@ function sendControl(text) {
 
 document.getElementById('pauseBtn').addEventListener('click', () => sendControl('descansa'));
 document.getElementById('powerBtn').addEventListener('click', () => sendControl('apágate'));
+
+// Cambia de modo según lo que la interfaz sabe que está activo ahora mismo
+// (así el botón siempre alterna al contrario del modo actual, sin importar
+// si el cambio anterior vino de voz, texto o de este mismo botón).
+document.getElementById('modeBtn').addEventListener('click', () => {
+  sendControl(currentAiMode === 'local' ? 'modo online' : 'modo local');
+});
+
+// Pide el nombre de la materia y dispara el comando de "crear zona de
+// estudio" — el resto (crear carpeta, abrir el selector de archivos,
+// copiar, indexar) lo hace Rochy solo, como si lo hubieras escrito/dicho tú.
+document.getElementById('studyBtn').addEventListener('click', () => {
+  const subject = window.prompt('¿Sobre qué materia o tema quieres estudiar?');
+  if (subject && subject.trim()) {
+    sendControl('créame zona de estudio para ' + subject.trim());
+  }
+});
+
+// Agrega más archivos a la materia que ya esté activa (el botón está
+// deshabilitado si no hay ninguna — ver updateStatusBar).
+document.getElementById('uploadBtn').addEventListener('click', () => {
+  if (currentStudySubject) {
+    openFilePicker(currentStudySubject);
+  }
+});
+
+// Panel de ayuda: solo se abre/cierra, no manda nada por WebSocket.
+document.getElementById('helpBtn').addEventListener('click', () => {
+  const panel = document.getElementById('helpPanel');
+  const btn = document.getElementById('helpBtn');
+  panel.classList.toggle('open');
+  btn.classList.toggle('active');
+});
 </script>
 </body>
 </html>
