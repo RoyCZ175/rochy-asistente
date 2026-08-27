@@ -493,11 +493,39 @@ def _process_slow_command(command_text, config, brain, local_brain_ai, voice, lo
         stop_event.set()
 
 
+def _should_silently_ignore(command_text: str) -> bool:
+    """Mientras Rochy está procesando algo, cualquier cosa que el micrófono/
+    texto capte que NO sea un comando de control reconocido (cancelar, salir,
+    pausar, reiniciar, cambiar de modo, modo estudio) se descarta ANTES de
+    escribirse en el chat o quedar en el registro — no solo se ignora al
+    final, se ignora sin dejar rastro visible. Antes cualquier frase suelta
+    se mostraba en el chat aunque luego no se hiciera nada con ella, y eso
+    confundía la conversación con fragmentos que en realidad nunca se
+    atendieron."""
+    if not proc.busy_event.is_set():
+        return False
+    if _is_cancel(command_text):
+        return False
+    study_kind, _ = _classify_study_intent(command_text)
+    if study_kind != "none":
+        return False
+    if _classify_control_intent(command_text) != "none":
+        return False
+    return True
+
+
 def _handle_command(command_text: str, config, brain, local_brain_ai, voice, lock, stop_event) -> str:
     """Punto de entrada único para un comando de voz o texto. Las órdenes de
     control (salir/pausar/reiniciar/cambiar de modo) se atienden al instante;
     todo lo demás (charla, tareas con IA) se despacha a un hilo aparte para
     que el micrófono/texto sigan activos mientras se genera la respuesta."""
+    if _should_silently_ignore(command_text):
+        # Solo queda en la consola/rochy.log para poder diagnosticar (nunca
+        # llega al chat visible ni se habla) — es justo lo que antes SÍ se
+        # mostraba y generaba confusión.
+        print(f"[info] Ignorado en silencio (procesando otra cosa): {command_text!r}")
+        return "handled"
+
     study_status = _handle_study_intent(command_text, voice, lock, stop_event)
     if study_status is not None:
         return study_status
@@ -505,17 +533,6 @@ def _handle_command(command_text: str, config, brain, local_brain_ai, voice, loc
     fast_status = _handle_fast_intent(command_text, config, brain, local_brain_ai, voice)
     if fast_status is not None:
         return fast_status
-
-    if proc.busy_event.is_set():
-        # Ya hay una petición en curso. Cualquier otra cosa que se oiga mientras
-        # tanto (ruido de fondo, una frase suelta, seguir hablando sin pausa) se
-        # ignora en vez de cancelar lo que ya estaba procesando — solo una
-        # frase de cancelación explícita ("olvídalo") o una orden de control
-        # real (ver _handle_fast_intent) puede interrumpirlo. Antes cualquier
-        # cosa nueva cancelaba lo anterior, y eso hacía que hablar de más
-        # rompiera una petición legítima a medias.
-        print(f"[info] Ignorado (ya hay algo procesándose): {command_text!r}")
-        return "handled"
 
     thread = threading.Thread(
         target=_process_slow_command,
