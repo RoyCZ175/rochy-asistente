@@ -99,6 +99,14 @@ CANCEL_PHRASES = {
     "cancela eso", "detente ya", "espera",
 }
 
+# Frases que pausan la conversación — coincidencia EXACTA (como CANCEL_PHRASES
+# arriba), no de subcadena: "gracias" suelto en medio de una frase más larga
+# ("gracias por lo de ayer, pero...") no debe pausar la app.
+END_CONVERSATION_PHRASES = {
+    "gracias", "muchas gracias", "gracias rochy", "listo gracias",
+    "eso es todo", "eso seria todo", "nada mas",
+}
+
 
 def _is_cancel(text: str) -> bool:
     # "para" se deja como coincidencia EXACTA (no de subcadena/raíz): es una
@@ -159,7 +167,13 @@ def _classify_control_intent(command_text: str) -> str:
     if not targets_something_else and _has_word_starting_with(text, "apag", "desactiv"):
         return "exit"
 
-    if _has_word_starting_with(text, "descans") or "gracias" in text or "eso es todo" in text or "nada mas" in text:
+    # "gracias"/"eso es todo" antes se buscaban como subcadena — cualquier
+    # frase que las mencionara de pasada (ej. "gracias por lo de ayer, pero
+    # necesito...") pausaba la app sin que el usuario quisiera terminar la
+    # conversación. Ahora, igual que con "para" en CANCEL_PHRASES, se exige
+    # que sea (casi) toda la frase, no una mención suelta en medio de otra cosa.
+    stripped = re.sub(r"^[^a-z0-9]+|[^a-z0-9]+$", "", text)
+    if _has_word_starting_with(text, "descans") or stripped in END_CONVERSATION_PHRASES:
         return "end_conversation"
 
     if (
@@ -442,12 +456,24 @@ def _generate_response(command_text: str, config, brain, local_brain_ai, cancel_
     ai_input = command_text
     subject = study_state.get_subject()
     if subject is not None:
+        # SIEMPRE se le avisa que el modo estudio está activo, aunque esta
+        # pregunta puntual no encuentre fragmentos relevantes en los apuntes
+        # (ej. una pregunta sobre el modo mismo, no sobre el tema) — antes,
+        # sin fragmentos, la IA no tenía ninguna pista de que seguía en modo
+        # estudio y llegó a negarlo ("no estoy en modo estudio") estando
+        # activo de verdad, porque nunca se le dijo.
         chunks = study_rag.search(subject, command_text)
         if chunks:
             context_block = "\n\n".join(f"- {c}" for c in chunks)
             ai_input = (
+                f"[Modo estudio activo, materia: {subject}]\n"
                 f"Contexto de mis apuntes de {subject} (úsalo si es relevante para responder, "
                 f"y dilo con naturalidad si no lo es):\n{context_block}\n\nPregunta: {command_text}"
+            )
+        else:
+            ai_input = (
+                f"[Modo estudio activo, materia: {subject}. No encontré fragmentos de mis apuntes "
+                f"relevantes para esta pregunta puntual.]\n\nPregunta: {command_text}"
             )
 
     if mode_state.is_forced_local() and local_brain_ai is not None:
