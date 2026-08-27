@@ -115,8 +115,14 @@
     flex-direction: column;
     min-width: 0;
     padding: 18px 28px 16px 28px;
-    overflow: hidden;
+    /* Antes era "hidden": si la ventana quedaba muy baja y todo (esfera +
+       tarjetas + chat + entrada) no cabía, el sobrante se recortaba
+       invisible — ni se veía ni se podía llegar a él. Ahora se puede
+       desplazar en vez de perderlo. */
+    overflow: auto;
   }
+  #main::-webkit-scrollbar { width: 6px; }
+  #main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
   #topRow {
     display: flex;
