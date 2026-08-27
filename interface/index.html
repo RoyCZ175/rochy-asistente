@@ -260,24 +260,64 @@
   .card.orange .cardIcon { background: linear-gradient(135deg, #ff99002e, #ff990010); color: var(--orange); box-shadow: 0 0 12px #ff99002e; }
   .card.pink   .cardIcon { background: linear-gradient(135deg, #ff2f9e2e, #ff2f9e10); color: var(--pink);   box-shadow: 0 0 12px #ff2f9e2e; }
 
-  /* ================= Panel de ayuda ================= */
-  #helpPanel {
+  /* ================= Ventana flotante (modal) =================
+     Reemplaza los alert()/prompt() nativos del navegador (se veían feos,
+     genéricos, y no se pueden ni pintar) y el panel de ayuda inline — ahora
+     todo "contenido de ayuda" (ayuda de verdad, o elegir/crear una materia
+     de estudio) aparece en esta misma ventana flotante, con nuestro propio
+     estilo, en vez de mezclarse con el chat. */
+  #modalOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 3, 10, 0.62);
+    backdrop-filter: blur(3px);
     display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  #modalOverlay.open { display: flex; }
+  #modalBox {
+    width: min(420px, 88vw);
+    max-height: 78vh;
+    display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 14px 16px;
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 16px;
+    box-shadow: 0 24px 70px #000000aa;
+    animation: modalIn 0.18s ease-out;
+  }
+  @keyframes modalIn {
+    from { opacity: 0; transform: scale(0.95) translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+  #modalHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  #modalTitle { font-size: 15px; font-weight: 700; letter-spacing: 0.4px; }
+  #modalClose {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #modalClose:hover { color: var(--text); border-color: var(--pink); }
+  #modalBody {
+    padding: 16px;
+    overflow-y: auto;
     font-size: 11.5px;
     line-height: 1.5;
-    margin-bottom: 12px;
-    overflow-y: auto;
-    flex: 0 1 auto;
-    max-height: 32vh;
   }
-  #helpPanel.open { display: flex; }
-  #helpPanel h4 {
+  #modalBody h4 {
     margin: 0 0 4px 0;
     font-size: 11px;
     letter-spacing: 1px;
@@ -285,8 +325,8 @@
     color: var(--blue);
     opacity: 0.9;
   }
-  #helpPanel p { margin: 0 0 8px 0; opacity: 0.9; }
-  #helpPanel code {
+  #modalBody p { margin: 0 0 8px 0; opacity: 0.9; }
+  #modalBody code {
     display: inline-block;
     background: #17203a;
     color: #cfe0ff;
@@ -295,7 +335,46 @@
     margin: 1px 0;
     font-size: 11px;
   }
-  #helpPanel .helpSection:last-child p:last-child { margin-bottom: 0; }
+  #modalBody .helpSection:last-child p:last-child { margin-bottom: 0; }
+
+  /* Lista de materias existentes, dentro del modal de "Estudiar" */
+  .subjectRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #0e1421;
+    cursor: pointer;
+    margin-bottom: 8px;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .subjectRow:hover { border-color: var(--purple); transform: translateX(2px); }
+  .subjectRow .subjectIcon { color: var(--purple); flex: 0 0 auto; display: flex; }
+  .subjectRow .subjectName { font-weight: 600; text-transform: capitalize; font-size: 12.5px; }
+  #newSubjectRow { display: flex; gap: 8px; margin-top: 4px; }
+  #newSubjectInput {
+    flex: 1;
+    background: #0e1421;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 12.5px;
+    outline: none;
+  }
+  #newSubjectInput:focus { border-color: var(--blue); }
+  #newSubjectBtn {
+    background: linear-gradient(135deg, var(--blue), var(--purple));
+    border: none;
+    color: #fff;
+    border-radius: 8px;
+    padding: 0 16px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
 
   /* ================= Transcript ================= */
   #log {
@@ -509,31 +588,6 @@
     </div>
 
     <!-- Ayuda en español sencillo, sin tecnicismos. -->
-    <div id="helpPanel">
-      <div class="helpSection">
-        <h4>Hablar con Rochy</h4>
-        <p>Dile "rochy" en voz alta y espera a que responda "Dime", o escribe tu mensaje abajo y presiona Enter. No hace falta decir nada especial para charlar o pedir tareas normales.</p>
-      </div>
-      <div class="helpSection">
-        <h4>Modo local vs. modo en línea</h4>
-        <p><b>En línea</b> usa internet y da las respuestas más completas. <b>Local</b> usa la IA de tu propia PC, no gasta datos.</p>
-        <p>Di <code>modo local</code> o <code>modo online</code>, o usa la tarjeta "Cambiar modo".</p>
-      </div>
-      <div class="helpSection">
-        <h4>Modo estudio</h4>
-        <p>Rochy responde usando tus propios apuntes (PDF, Word o texto). Di <code>créame zona de estudio para [materia]</code> y elige tus archivos, o usa la tarjeta "Estudiar".</p>
-        <p>Di <code>sal del modo estudio</code> para salir, o <code>olvida el estudio de [materia]</code> para que olvide lo aprendido (sin borrar tus archivos).</p>
-      </div>
-      <div class="helpSection">
-        <h4>Si Rochy se equivoca o tarda</h4>
-        <p>Di <code>olvídalo</code> o <code>cancela</code> en cualquier momento.</p>
-      </div>
-      <div class="helpSection">
-        <h4>Pausar o cerrar</h4>
-        <p>"Pausar" deja de escuchar activamente. "Apagar" cierra la aplicación. También puedes decir "descansa" o "apágate".</p>
-      </div>
-    </div>
-
     <div id="log"></div>
 
     <div id="inputRow">
@@ -561,6 +615,18 @@
 
     <div id="footer">ROCHY · AI</div>
     <div id="connLabel">conectando…</div>
+  </div>
+</div>
+
+<!-- Ventana flotante reutilizable: ayuda y el selector de materias de
+     estudio la usan, en vez de alert()/prompt() nativos del navegador. -->
+<div id="modalOverlay">
+  <div id="modalBox">
+    <div id="modalHeader">
+      <span id="modalTitle" class="display-font"></span>
+      <button id="modalClose">✕</button>
+    </div>
+    <div id="modalBody"></div>
   </div>
 </div>
 
@@ -692,26 +758,117 @@ document.getElementById('modeBtn').addEventListener('click', () => {
   sendControl(currentAiMode === 'local' ? 'modo online' : 'modo local');
 });
 
-document.getElementById('studyBtn').addEventListener('click', () => {
-  const subject = window.prompt('¿Sobre qué materia o tema quieres estudiar?');
-  if (subject && subject.trim()) {
-    sendControl('créame zona de estudio para ' + subject.trim());
-  }
-});
-
 document.getElementById('uploadBtn').addEventListener('click', () => {
   if (currentStudySubject) openFilePicker(currentStudySubject);
 });
 
-function toggleHelp() {
-  const panel = document.getElementById('helpPanel');
-  const wasOpen = panel.classList.contains('open');
-  panel.classList.toggle('open');
-  document.getElementById('helpBtn').classList.toggle('active', !wasOpen);
-  document.getElementById('navHelp').classList.toggle('active', !wasOpen);
+// --- Ventana flotante (modal) ---
+// Reemplaza alert()/prompt() nativos (se veían genéricos y feos, sin
+// nuestro estilo) y el panel de ayuda inline. "Ayuda" y "Estudiar" abren
+// esta misma ventana con contenido distinto — nunca aparece nada de esto
+// como mensajes en el chat.
+const modalOverlay = document.getElementById('modalOverlay');
+const modalTitleEl = document.getElementById('modalTitle');
+const modalBodyEl = document.getElementById('modalBody');
+
+function openModal(title, bodyHTML) {
+  modalTitleEl.textContent = title;
+  modalBodyEl.innerHTML = bodyHTML;
+  modalOverlay.classList.add('open');
 }
-document.getElementById('helpBtn').addEventListener('click', toggleHelp);
-document.getElementById('settingsBtn').addEventListener('click', toggleHelp);
+function closeModal() {
+  modalOverlay.classList.remove('open');
+}
+document.getElementById('modalClose').addEventListener('click', closeModal);
+modalOverlay.addEventListener('click', (e) => {
+  if (e.target === modalOverlay) closeModal();
+});
+
+const HELP_HTML = `
+  <div class="helpSection">
+    <h4>Hablar con Rochy</h4>
+    <p>Dile "rochy" en voz alta y espera a que responda "Dime", o escribe tu mensaje abajo y presiona Enter. No hace falta decir nada especial para charlar o pedir tareas normales.</p>
+  </div>
+  <div class="helpSection">
+    <h4>Modo local vs. modo en línea</h4>
+    <p><b>En línea</b> usa internet y da las respuestas más completas. <b>Local</b> usa la IA de tu propia PC, no gasta datos.</p>
+    <p>Di <code>modo local</code> o <code>modo online</code>, o usa la tarjeta "Cambiar modo".</p>
+  </div>
+  <div class="helpSection">
+    <h4>Modo estudio</h4>
+    <p>Rochy responde usando tus propios apuntes (PDF, Word o texto). Usa la tarjeta "Estudiar" para elegir una materia existente o crear una nueva.</p>
+    <p>Di <code>sal del modo estudio</code> para salir, o <code>olvida el estudio de [materia]</code> para que olvide lo aprendido (sin borrar tus archivos).</p>
+  </div>
+  <div class="helpSection">
+    <h4>Si Rochy se equivoca o tarda</h4>
+    <p>Di <code>olvídalo</code> o <code>cancela</code> en cualquier momento.</p>
+  </div>
+  <div class="helpSection">
+    <h4>Pausar o cerrar</h4>
+    <p>"Pausar" deja de escuchar activamente. "Apagar" cierra la aplicación. También puedes decir "descansa" o "apágate".</p>
+  </div>
+`;
+
+function showHelp() {
+  openModal('Ayuda', HELP_HTML);
+}
+
+const SUBJECT_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5.5C4 4.7 4.7 4 5.5 4H12v16H5.5C4.7 20 4 19.3 4 18.5V5.5Z"/><path d="M20 5.5C20 4.7 19.3 4 18.5 4H12v16h6.5c.8 0 1.5-.7 1.5-1.5V5.5Z"/></svg>';
+
+async function showStudyPicker() {
+  openModal('Modo estudio', '<p style="opacity:.7">Cargando tus materias…</p>');
+
+  let subjects = [];
+  try {
+    if (window.pywebview && window.pywebview.api) {
+      subjects = await window.pywebview.api.list_subjects();
+    }
+  } catch (e) {
+    subjects = [];
+  }
+
+  const rowsHtml = subjects.length
+    ? subjects.map((s) => `
+        <div class="subjectRow" data-subject="${s}">
+          <span class="subjectIcon">${SUBJECT_ICON}</span>
+          <span class="subjectName">${s.replace(/_/g, ' ')}</span>
+        </div>
+      `).join('')
+    : '<p style="opacity:.7">Todavía no tienes ninguna materia — crea la primera abajo.</p>';
+
+  modalBodyEl.innerHTML = `
+    <p style="margin:0 0 10px 0; opacity:.75;">Elige una materia para seguir estudiando:</p>
+    ${rowsHtml}
+    <div id="newSubjectRow">
+      <input id="newSubjectInput" type="text" placeholder="Nueva materia…">
+      <button id="newSubjectBtn">Crear</button>
+    </div>
+  `;
+
+  modalBodyEl.querySelectorAll('.subjectRow').forEach((row) => {
+    row.addEventListener('click', async () => {
+      const subject = row.dataset.subject;
+      closeModal();
+      if (window.pywebview && window.pywebview.api) {
+        await window.pywebview.api.activate_subject(subject);
+      }
+    });
+  });
+
+  const newInput = document.getElementById('newSubjectInput');
+  const createNew = () => {
+    const name = newInput.value.trim();
+    if (!name) return;
+    closeModal();
+    openFilePicker(name); // crea la carpeta, abre el selector, copia e indexa
+  };
+  document.getElementById('newSubjectBtn').addEventListener('click', createNew);
+  newInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') createNew(); });
+}
+
+document.getElementById('helpBtn').addEventListener('click', showHelp);
+document.getElementById('settingsBtn').addEventListener('click', showHelp);
+document.getElementById('studyBtn').addEventListener('click', showStudyPicker);
 
 // --- Barra lateral: accesos rápidos a las mismas acciones que las tarjetas ---
 document.getElementById('navChat').addEventListener('click', () => {
@@ -720,7 +877,7 @@ document.getElementById('navChat').addEventListener('click', () => {
 });
 document.getElementById('navStudy').addEventListener('click', () => {
   setActiveNav('navStudy');
-  document.getElementById('studyBtn').click();
+  showStudyPicker();
 });
 document.getElementById('navFiles').addEventListener('click', () => {
   setActiveNav('navFiles');
@@ -728,7 +885,7 @@ document.getElementById('navFiles').addEventListener('click', () => {
 });
 document.getElementById('navHelp').addEventListener('click', () => {
   setActiveNav('navHelp');
-  toggleHelp();
+  showHelp();
 });
 function setActiveNav(id) {
   for (const btn of document.querySelectorAll('.navBtn')) {
