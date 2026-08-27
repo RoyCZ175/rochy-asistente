@@ -42,6 +42,7 @@ class VoiceOutput:
         if not text:
             return
         with self._lock:
+            proc.last_spoken_text = text
             ui_server.broadcast_state("speaking")
             # Mientras esto suena por los parlantes, el bucle de voz debe dejar de
             # escuchar — si no, el micrófono puede captar la propia voz de Rochy

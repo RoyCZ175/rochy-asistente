@@ -23,6 +23,14 @@ class SpeechListener:
 
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
+        # Por defecto, el umbral de sensibilidad se sigue reajustando solo
+        # con cada escucha (dynamic_energy_threshold) — si en algún momento
+        # capta un ruido fuerte de fondo (TV, golpe, incluso su propia voz),
+        # ese umbral puede dispararse hacia arriba y quedarse ahí, cada vez
+        # pidiendo más volumen para activarse hasta terminar ignorando todo,
+        # ni a gritos. Se fija el umbral calibrado arriba y no se vuelve a
+        # tocar solo: mucho más predecible que dejarlo "flotando".
+        self.recognizer.dynamic_energy_threshold = False
 
     def listen(self, timeout: float = 5, phrase_time_limit: float = 6) -> str:
         with self.microphone as source:

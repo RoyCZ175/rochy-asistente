@@ -1,4 +1,5 @@
 import datetime
+import difflib
 import os
 import random
 import re
@@ -118,6 +119,30 @@ def _is_cancel(text: str) -> bool:
     # detectarla dentro de cualquier frase sin generar falsos positivos.
     normalized = re.sub(r"^[^a-z0-9]+|[^a-z0-9]+$", "", _normalize_text(text))
     return normalized in CANCEL_PHRASES
+
+
+# Qué tan parecido (0 a 1) tiene que ser lo oído a lo último que Rochy dijo
+# para descartarlo como eco de su propia voz colándose por el micrófono (sin
+# auriculares) en vez de tratarlo como un comando real del usuario.
+SELF_ECHO_SIMILARITY = 0.65
+
+
+def _sounds_like_self_echo(heard_text: str) -> bool:
+    """Compara lo recién oído contra lo último que salió por los parlantes
+    (ver processing_state.last_spoken_text, actualizado en tts.py). Cubre el
+    caso en que el eco físico del parlante llega al micrófono DESPUÉS de que
+    speaking_event ya se limpió (el sonido tarda un instante en apagarse del
+    todo en el cuarto) — el chequeo de estado por sí solo no alcanza a
+    detectar esto porque, para cuando se oye, Rochy ya "no está hablando"
+    según el estado interno. Esto pasó de verdad: dijo la hora y se escuchó
+    a sí misma diciéndola de nuevo como si fuera el usuario repitiéndola."""
+    last = proc.last_spoken_text
+    if not last or not heard_text:
+        return False
+    a = _normalize_text(heard_text)
+    b = _normalize_text(last)
+    ratio = difflib.SequenceMatcher(None, a, b).ratio()
+    return ratio >= SELF_ECHO_SIMILARITY
 
 
 def _normalize_text(text: str) -> str:
@@ -741,6 +766,15 @@ def _voice_loop(
                         ui_server.broadcast_transcript("assistant", "[interrumpido]")
                     # lo que no sea cancelación se ignora del todo, ni se
                     # registra — es justo lo que se oye mientras habla.
+                    continue
+
+                if _sounds_like_self_echo(command_text):
+                    # No estaba marcada como "hablando" (ya se filtró arriba),
+                    # pero lo oído es casi idéntico a lo último que ella misma
+                    # dijo — eco físico del parlante llegando al micrófono, no
+                    # el usuario. Se registra para diagnóstico, pero no se
+                    # muestra ni se procesa como comando real.
+                    print(f"[info] Ignorado por parecer eco de su propia voz: {command_text!r}")
                     continue
 
                 sound_cues.listening_stopped()

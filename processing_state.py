@@ -24,3 +24,12 @@ cancel_event = threading.Event()
 # volvió a abrir explorer una y otra vez). Mientras esto esté activo, el
 # bucle de voz pausa el reconocimiento en vez de procesar lo que capte.
 speaking_event = threading.Event()
+
+# Último texto que de verdad salió por los parlantes (ver tts.py). Sin
+# auriculares, el eco físico del parlante puede colarse en el micrófono
+# incluso DESPUÉS de que speaking_event ya se limpió (el sonido tarda un
+# instante en apagarse del todo en el cuarto) — esto pasó de verdad: Rochy
+# dijo la hora y se "escuchó" a sí misma diciéndola de nuevo como si fuera
+# el usuario. Comparar lo recién oído contra esto permite detectar y
+# descartar ese eco aunque ya no esté marcada como "hablando".
+last_spoken_text = ""
