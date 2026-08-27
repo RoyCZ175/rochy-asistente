@@ -70,6 +70,13 @@ def broadcast_mode(ai_mode: str, study_subject) -> None:
     _broadcast({"type": "mode_update", "ai_mode": ai_mode, "study_subject": study_subject})
 
 
+def broadcast_voice_envelope(envelope: list, step_ms: int) -> None:
+    """Manda el volumen real de la voz que está a punto de sonar (ver
+    tts.py) para que el orbe pueda crecer/encoger siguiendo los altos y
+    bajos de verdad, en vez de una animación genérica de 'hablando'."""
+    _broadcast({"type": "voice_envelope", "envelope": envelope, "step_ms": step_ms})
+
+
 def broadcast_open_file_picker(subject: str) -> None:
     """Le pide a la interfaz que abra el selector nativo de archivos para esa
     materia — la propia interfaz es quien debe llamar a la función expuesta

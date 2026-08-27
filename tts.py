@@ -8,12 +8,17 @@ import tempfile
 import threading
 
 import edge_tts
+import numpy as np
 import pygame
 import pyttsx3
 
 import connectivity
 import processing_state as proc
 import ui_server
+
+# Cada cuánto tiempo se manda un valor de volumen a la interfaz mientras
+# habla — bastante seguido para que se vea fluido, sin ser excesivo.
+ENVELOPE_STEP_MS = 60
 
 
 class VoiceOutput:
@@ -86,10 +91,44 @@ class VoiceOutput:
         return path
 
     def _play(self, path: str) -> None:
+        envelope = self._compute_envelope(path)
         pygame.mixer.music.load(path)
         pygame.mixer.music.play()
+        # Manda el volumen real de la voz (calculado de antemano) al mismo
+        # ritmo en que se reproduce, para que la interfaz pueda hacer que el
+        # orbe crezca/encoja siguiendo los altos y bajos de verdad — no una
+        # animación genérica de "hablando".
+        if envelope:
+            ui_server.broadcast_voice_envelope(envelope, ENVELOPE_STEP_MS)
         while pygame.mixer.music.get_busy():
             pygame.time.wait(100)
+
+    def _compute_envelope(self, path: str) -> list:
+        """Volumen real del audio (RMS) en ventanitas de ENVELOPE_STEP_MS,
+        normalizado de 0 a 1. Se calcula UNA vez antes de reproducir (no en
+        vivo) porque es más simple y de sobra suficientemente rápido — un
+        audio de varios segundos se analiza en milisegundos."""
+        try:
+            sound = pygame.mixer.Sound(path)
+            raw = sound.get_raw()  # PCM ya decodificado por SDL_mixer
+            init = pygame.mixer.get_init()
+            if not init:
+                return []
+            freq, _fmt, channels = init
+            samples = np.frombuffer(raw, dtype=np.int16)
+            if channels > 1:
+                samples = samples.reshape(-1, channels).mean(axis=1)
+            step = max(1, int(freq * ENVELOPE_STEP_MS / 1000))
+            usable = len(samples) - (len(samples) % step)
+            if usable <= 0:
+                return []
+            windows = samples[:usable].reshape(-1, step).astype(np.float64)
+            rms = np.sqrt(np.mean(windows * windows, axis=1))
+            peak = float(rms.max()) or 1.0
+            return [round(float(v) / peak, 3) for v in rms]
+        except Exception as exc:
+            print(f"[tts] no pude calcular el volumen del audio: {exc!r}")
+            return []
 
     def _cleanup(self, path: str) -> None:
         try:

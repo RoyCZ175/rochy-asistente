@@ -128,6 +128,29 @@
     let ripples = [];
     let lastRippleAt = 0;
 
+    // Volumen real de la voz mientras habla (ver tts.py: se calcula del
+    // audio de verdad, no es un adorno) — el orbe crece/encoge siguiendo
+    // estos valores en vez de solo pulsar de forma genérica.
+    let voiceEnvelope = [];
+    let voiceStepMs = 60;
+    let voiceStartedAt = 0;
+    let voiceLevel = 0;
+    function setVoiceEnvelope(envelope, stepMs) {
+      voiceEnvelope = envelope || [];
+      voiceStepMs = stepMs || 60;
+      voiceStartedAt = performance.now();
+    }
+    function currentVoiceLevel(now) {
+      if (!voiceEnvelope.length) return 0;
+      const elapsed = now - voiceStartedAt;
+      const idx = elapsed / voiceStepMs;
+      const i0 = Math.floor(idx);
+      if (i0 >= voiceEnvelope.length) return 0;
+      const i1 = Math.min(i0 + 1, voiceEnvelope.length - 1);
+      const frac = idx - i0;
+      return lerp(voiceEnvelope[i0], voiceEnvelope[i1], frac);
+    }
+
     function frame(now) {
       resize();
       current.spin = lerp(current.spin, target.spin, 0.03);
@@ -139,19 +162,30 @@
       const tiltX = baseTiltX + mouseY * 0.35;
       const tiltZ = mouseX * 0.5;
 
+      // Volumen real de la voz mientras habla — crece/encoge el orbe
+      // siguiendo los altos y bajos de verdad, suavizado para que no salte
+      // de golpe entre un valor y el siguiente.
+      const targetVoice = activeState === 'speaking' ? currentVoiceLevel(now) : 0;
+      voiceLevel = lerp(voiceLevel, targetVoice, 0.35);
+
+      // Respiración lenta entre colores vivos y más oscuros/apagados —
+      // independiente del estado, le da rango de vida a la esfera incluso
+      // en reposo, no se queda siempre en el mismo brillo.
+      const darkBreath = 0.62 + Math.sin(now / 4200) * 0.38;
+
       const w = netCanvas.width, h = netCanvas.height;
       const cx = w / 2, cy = h / 2;
-      const R = Math.min(w, h) * 0.34;
+      const R = Math.min(w, h) * 0.34 * (1 + voiceLevel * 0.4);
 
       ctx.clearRect(0, 0, w, h);
       gctx.clearRect(0, 0, glowCanvas.width, glowCanvas.height);
 
       // Resplandor suave detrás, respira con el estado (más fuerte
-      // pensando/hablando que en espera).
-      const glowR = R * (1.7 + Math.sin(now / 900) * 0.08 * current.pulse);
+      // pensando/hablando que en espera) y con la voz real al hablar.
+      const glowR = R * (1.7 + Math.sin(now / 900) * 0.08 * current.pulse + voiceLevel * 0.25);
       const [pr, pg, pb] = PALETTE_RGB[1];
       const glowGrad = gctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(glowR, 1));
-      glowGrad.addColorStop(0, `rgba(${pr},${pg},${pb},${0.16 * current.pulse})`);
+      glowGrad.addColorStop(0, `rgba(${pr},${pg},${pb},${0.16 * current.pulse * darkBreath + voiceLevel * 0.12})`);
       glowGrad.addColorStop(1, 'rgba(5,6,11,0)');
       gctx.fillStyle = glowGrad;
       gctx.beginPath();
@@ -193,11 +227,13 @@
         ctx.stroke();
       }
 
-      // Conexiones: más tenues las que quedan "de espaldas" a la cámara.
+      // Conexiones: más tenues las que quedan "de espaldas" a la cámara, y
+      // todas un poco más tenues durante los momentos "oscuros" de la
+      // respiración de color.
       for (const [i, j] of EDGES) {
         const a = projected[i], b = projected[j];
         const depthAvg = (a.depth + b.depth) / 2;
-        const alpha = 0.1 + Math.max(0, depthAvg) * 0.35;
+        const alpha = (0.1 + Math.max(0, depthAvg) * 0.35) * darkBreath;
         const [r, g, b2] = PALETTE_RGB[(i + j) % PALETTE_RGB.length];
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
@@ -214,8 +250,8 @@
         const [r, g, b2] = PALETTE_RGB[idx % PALETTE_RGB.length];
         ctx.beginPath();
         ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${r},${g},${b2},${0.35 + front * 0.6})`;
-        ctx.shadowBlur = 6 * front;
+        ctx.fillStyle = `rgba(${r},${g},${b2},${(0.35 + front * 0.6) * darkBreath})`;
+        ctx.shadowBlur = 6 * front * darkBreath;
         ctx.shadowColor = `rgb(${r},${g},${b2})`;
         ctx.fill();
         ctx.shadowBlur = 0;
@@ -225,7 +261,7 @@
     }
     requestAnimationFrame(frame);
 
-    return { setState };
+    return { setState, setVoiceEnvelope };
   }
 
   global.SiriOrb = { init };

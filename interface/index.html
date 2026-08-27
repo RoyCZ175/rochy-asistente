@@ -136,7 +136,21 @@
   }
   #settingsBtn:hover { color: var(--text); border-color: var(--blue); }
 
-  #header { text-align: center; flex: 0 0 auto; }
+  /* ================= Diseño responsive: prioriza el chat =================
+     En cuanto hay una conversación de verdad (#main.chatting, activado desde
+     JS en addBubble), el encabezado/esfera/tarjetas se achican con una
+     transición suave — le devuelven casi todo el espacio vertical al chat,
+     que es lo que más importa una vez que ya empezaste a hablar con Rochy.
+     Las 4 acciones de las tarjetas siguen accesibles desde la barra
+     lateral, así que nada se pierde al ocultarlas. */
+  #header {
+    text-align: center;
+    flex: 0 0 auto;
+    max-height: 80px;
+    overflow: hidden;
+    transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease;
+  }
+  #main.chatting #header { max-height: 0; opacity: 0; margin: 0; }
   #assistantName {
     font-size: 30px;
     font-weight: 700;
@@ -164,6 +178,7 @@
     height: 260px;
     margin: 4px auto 2px auto;
     flex: 0 0 auto;
+    transition: width 0.3s ease, height 0.3s ease, margin 0.3s ease;
   }
   #orbWrap canvas {
     position: absolute;
@@ -171,6 +186,7 @@
     width: 100%;
     height: 100%;
   }
+  #main.chatting #orbWrap { width: 68px; height: 68px; margin: 6px auto; }
 
   #statusPill {
     align-self: center;
@@ -182,7 +198,10 @@
     border: 1px solid var(--border);
     background: var(--panel);
     margin: 0 auto 14px auto;
+    transition: padding 0.3s ease, margin 0.3s ease;
   }
+  #main.chatting #statusPill { padding: 4px 12px; margin: 0 auto 8px auto; }
+  #main.chatting #statusSub { display: none; }
   #statusDot {
     width: 8px; height: 8px; border-radius: 50%;
     background: #4dff9a;
@@ -201,10 +220,19 @@
   /* ================= Tarjetas de función ================= */
   #cards {
     display: grid;
-    grid-template-columns: repeat(4, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 12px;
     flex: 0 0 auto;
     margin-bottom: 14px;
+    max-height: 200px;
+    overflow: hidden;
+    transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease;
+  }
+  #main.chatting #cards {
+    max-height: 0;
+    opacity: 0;
+    margin: 0;
+    pointer-events: none;
   }
   /* Borde con degradado RGB girando — técnica de doble fondo (uno solo
      visible dentro del borde, otro solo en el área del borde mismo), sin
@@ -521,6 +549,9 @@
       <button class="navBtn active" id="navChat" title="Ir al chat">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 1 3.5 6.6L4 20l1.2-3.8A7.96 7.96 0 0 1 4 12Z"/></svg>
       </button>
+      <button class="navBtn" id="navMode" title="Cambiar modo (local/online)">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><line x1="3" y1="12" x2="21" y2="12"/></svg>
+      </button>
       <button class="navBtn" id="navStudy" title="Modo estudio">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 2 9l10 5 10-5-10-5Z"/><path d="M6 11.5V17c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-5.5"/></svg>
       </button>
@@ -663,6 +694,10 @@ function addBubble(role, text) {
   div.textContent = text;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
+  // En cuanto hay conversación de verdad, la esfera/encabezado/tarjetas se
+  // achican para darle casi todo el espacio al chat — la pantalla de
+  // bienvenida ya cumplió su función de mostrar las opciones disponibles.
+  document.getElementById('main').classList.add('chatting');
 }
 
 // --- Estado actual conocido por la interfaz ---
@@ -714,6 +749,11 @@ function connect() {
       updateStatusBar();
     } else if (data.type === 'open_file_picker' && data.subject) {
       openFilePicker(data.subject);
+    } else if (data.type === 'voice_envelope') {
+      // Volumen real de la voz que está a punto de sonar (ver tts.py) — el
+      // orbe lo usa para crecer/encoger siguiendo los altos y bajos de
+      // verdad mientras habla.
+      orb.setVoiceEnvelope(data.envelope, data.step_ms);
     }
   };
 }
@@ -874,6 +914,9 @@ document.getElementById('studyBtn').addEventListener('click', showStudyPicker);
 document.getElementById('navChat').addEventListener('click', () => {
   setActiveNav('navChat');
   input.focus();
+});
+document.getElementById('navMode').addEventListener('click', () => {
+  document.getElementById('modeBtn').click();
 });
 document.getElementById('navStudy').addEventListener('click', () => {
   setActiveNav('navStudy');
