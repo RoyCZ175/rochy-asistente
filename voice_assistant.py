@@ -136,9 +136,16 @@ def _classify_control_intent(command_text: str) -> str:
     ):
         return "reset"
 
-    if any(p in text for p in FORCE_LOCAL_PHRASES):
+    # Las frases de forzar modo local/online son cortas por naturaleza
+    # ("pasa a modo local", "modo ahorro"). Si aparecen dentro de un mensaje
+    # largo es casi siempre porque el usuario está PREGUNTANDO sobre el modo
+    # ("¿qué funciones tienes en modo local?"), no pidiendo activarlo — de lo
+    # contrario esa pregunta nunca llega a la IA y solo repite el mensaje
+    # fijo de activación una y otra vez.
+    is_short_command = len(text.split()) <= 6
+    if is_short_command and any(p in text for p in FORCE_LOCAL_PHRASES):
         return "force_local"
-    if any(p in text for p in FORCE_ONLINE_PHRASES):
+    if is_short_command and any(p in text for p in FORCE_ONLINE_PHRASES):
         return "force_online"
 
     return "none"
