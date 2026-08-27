@@ -86,14 +86,29 @@ def _has_word_starting_with(text: str, *roots: str) -> bool:
     return any(word.startswith(root) for word in words for root in roots)
 
 
+# "Apagar"/"desactivar" son verbos genéricos que la gente también usa para
+# otras cosas (wifi, volumen, modo oscuro...). Si el texto menciona alguno de
+# estos objetivos, la orden NO es sobre apagar/pausar al asistente mismo —
+# esto es justo lo que pasó con "desactiva el wifi", que cerraba la app entera
+# por error.
+OTHER_TARGET_WORDS = (
+    "wifi", "wi-fi", "online", "internet", "volumen", "modo", "notificacion",
+    "pantalla", "luz", "bluetooth", "brillo", "sonido", "microfono", "camara",
+    "bateria", "avion",
+)
+
+
 def _classify_control_intent(command_text: str) -> str:
     """Detecta frases de control (salir/pausar/reiniciar) tolerando variaciones
     de conjugación, acentos y palabras de más alrededor — no exige una
     coincidencia exacta con una frase fija. Devuelve 'exit', 'end_conversation',
     'reset' o 'none'."""
     text = _normalize_text(command_text)
+    targets_something_else = any(word in text for word in OTHER_TARGET_WORDS)
 
-    if _has_word_starting_with(text, "apag", "desactiv") or "adios" in text or "hasta luego" in text or "salir" in text:
+    if "adios" in text or "hasta luego" in text or "salir" in text:
+        return "exit"
+    if not targets_something_else and _has_word_starting_with(text, "apag", "desactiv"):
         return "exit"
 
     if _has_word_starting_with(text, "descans") or "gracias" in text or "eso es todo" in text or "nada mas" in text:
@@ -119,12 +134,14 @@ def _handle_command(command_text: str, config, brain, local_brain_ai, voice) -> 
 
     if intent == "exit":
         farewell = "Hasta luego."
+        print(f"{config.assistant_name}: {farewell} [cerrando la app]")
         voice.speak(farewell)
         ui_server.broadcast_transcript("assistant", farewell)
         return "exit"
 
     if intent == "end_conversation":
         reply = "De acuerdo, aquí estaré si me necesitas."
+        print(f"{config.assistant_name}: {reply} [pausa, sigue abierta]")
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
         return "end_conversation"
@@ -136,6 +153,7 @@ def _handle_command(command_text: str, config, brain, local_brain_ai, voice) -> 
         if local_brain_ai is not None:
             local_brain_ai.reset()
         reply = "Listo, empezamos de cero."
+        print(f"{config.assistant_name}: {reply} [conversación reiniciada]")
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
         return "handled"
