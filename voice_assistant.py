@@ -313,6 +313,17 @@ def _handle_command(command_text: str, config, brain, local_brain_ai, voice, loc
     if fast_status is not None:
         return fast_status
 
+    if proc.busy_event.is_set():
+        # Ya hay una petición en curso. Cualquier otra cosa que se oiga mientras
+        # tanto (ruido de fondo, una frase suelta, seguir hablando sin pausa) se
+        # ignora en vez de cancelar lo que ya estaba procesando — solo una
+        # frase de cancelación explícita ("olvídalo") o una orden de control
+        # real (ver _handle_fast_intent) puede interrumpirlo. Antes cualquier
+        # cosa nueva cancelaba lo anterior, y eso hacía que hablar de más
+        # rompiera una petición legítima a medias.
+        print(f"[info] Ignorado (ya hay algo procesándose): {command_text!r}")
+        return "handled"
+
     thread = threading.Thread(
         target=_process_slow_command,
         args=(command_text, config, brain, local_brain_ai, voice, lock, stop_event),
@@ -396,12 +407,6 @@ def _voice_loop(
                 if _handle_cancel_if_requested(command_text, voice):
                     continue
 
-                # Dar una orden nueva mientras otra sigue en curso significa
-                # que esa anterior ya no importa (mejor que quedarse esperando
-                # a que termine, o peor, colgada con algo como Spotify).
-                if proc.busy_event.is_set():
-                    proc.cancel_event.set()
-
                 status = _handle_command(command_text, config, brain, local_brain_ai, voice, lock, stop_event)
                 if status == "exit":
                     stop_event.set()
@@ -426,8 +431,6 @@ def _text_loop(
             continue
         if _handle_cancel_if_requested(text, voice):
             continue
-        if proc.busy_event.is_set():
-            proc.cancel_event.set()
         try:
             status = _handle_command(text, config, brain, local_brain_ai, voice, lock, stop_event)
             if status == "exit":

@@ -17,7 +17,7 @@ import requests
 import concurrent.futures
 
 from ai_brain import (
-    TOOLS,
+    LOCAL_TOOLS,
     VERBATIM_TOOLS,
     TYPING_TOOLS,
     TOOL_TIMEOUT_SECONDS,
@@ -31,12 +31,17 @@ OLLAMA_BASE = "http://localhost:11434"
 TIMEOUT = 60
 
 SYSTEM_PROMPT_LOCAL = """Eres {name}, un asistente de voz personal, hablas en español.
-Estás en modo local (sin internet), con un modelo más simple y pequeño que el habitual,
-así que sé directo y breve (1 a 2 frases), sin listas ni markdown.
+Estás en modo local (sin internet o modo ahorro activado a propósito), con un modelo más
+simple y pequeño que el habitual, así que sé directo y breve (1 a 2 frases), sin listas ni
+markdown.
 Tienes herramientas para tareas básicas del PC (abrir apps, hora, volumen, teclado, mouse,
-carpetas) y para recordar datos del usuario. Las herramientas que necesitan internet (Spotify,
-Google, la universidad, create_document/create_webpage/create_script porque generan el contenido
-con IA en la nube) probablemente no funcionen ahora mismo — si fallan, dilo con naturalidad.
+carpetas) y para recordar datos del usuario. Las que necesitan internet (Spotify, Google, la
+universidad) probablemente no funcionen ahora mismo si de verdad no hay conexión — si fallan,
+dilo con naturalidad.
+NO tienes disponibles create_document, create_webpage ni create_script (necesitan generar el
+contenido con IA en la nube, y eso no aplica en modo local): si te piden crear un documento,
+página web o script, dilo claramente y sugiere pasar a "modo online" en vez de intentarlo o de
+inventar que lo hiciste.
 Usa una herramienta solo cuando el usuario pida una acción concreta.
 REGLA CRÍTICA: si te preguntan la hora o la fecha, SIEMPRE llama a get_time — nunca inventes una
 hora, ni siquiera aproximada. Si te piden abrir una app, SIEMPRE llama a open_app — nunca digas
@@ -84,7 +89,7 @@ class LocalAIBrain:
         if cancel_event is not None and cancel_event.is_set():
             return None
 
-        message = self._chat(tools=TOOLS)
+        message = self._chat(tools=LOCAL_TOOLS)
 
         if cancel_event is not None and cancel_event.is_set():
             return None

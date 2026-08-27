@@ -551,6 +551,14 @@ TOOLS = [
     },
 ]
 
+# Estas herramientas SIEMPRE llaman a Groq (la nube) para generar el contenido,
+# sin importar qué modelo esté "conversando" — no tiene sentido ofrecérselas al
+# cerebro local: rompería la promesa de "modo local forzado" (nada de nube) y,
+# peor, un modelo pequeño tiende a fabricar una respuesta falsa de éxito en vez
+# de intentar llamarlas (ej. "el cuento se ha guardado" sin haber creado nada).
+CLOUD_ONLY_TOOLS = {"create_document", "create_webpage", "create_script"}
+LOCAL_TOOLS = [t for t in TOOLS if t["function"]["name"] not in CLOUD_ONLY_TOOLS]
+
 # Herramientas cuyo resultado se habla tal cual, sin dejar que el modelo lo reformule
 # (evita que "reinterprete" una pregunta de confirmación de seguridad).
 VERBATIM_TOOLS = {"gmail_draft_email"}
