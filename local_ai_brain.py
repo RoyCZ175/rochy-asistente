@@ -38,6 +38,13 @@ carpetas) y para recordar datos del usuario. Las herramientas que necesitan inte
 Google, la universidad, create_document/create_webpage/create_script porque generan el contenido
 con IA en la nube) probablemente no funcionen ahora mismo — si fallan, dilo con naturalidad.
 Usa una herramienta solo cuando el usuario pida una acción concreta.
+REGLA CRÍTICA: si te preguntan la hora o la fecha, SIEMPRE llama a get_time — nunca inventes una
+hora, ni siquiera aproximada. Si te piden abrir una app, SIEMPRE llama a open_app — nunca digas
+que la abriste sin haber llamado a la herramienta de verdad.
+IMPORTANTE: cuando uses una herramienta, hazlo SIEMPRE mediante el mecanismo real de function
+calling (tool_calls) que tienes disponible. NUNCA escribas el nombre de una función ni su
+sintaxis como si fuera texto normal de tu respuesta (ej. nunca escribas algo como
+open_app("calculadora") en tu mensaje) — eso no ejecuta nada de verdad.
 IMPORTANTE: teclear (type_text/press_key/hotkey) escribe literalmente en la ventana que tenga el
 foco en ese momento. Úsalo SOLO si el usuario pide explícitamente escribir algo en otra app. Tu
 propia respuesta NUNCA se teclea, siempre va hablada/en el chat.
@@ -139,6 +146,11 @@ class LocalAIBrain:
             "model": self.model,
             "messages": self.history,
             "stream": False,
+            # Con la temperatura por defecto del modelo (más alta, pensada para
+            # charla), un modelo de 7B era inconsistente decidiendo cuándo usar
+            # una herramienta (a veces inventaba una respuesta en vez de llamarla,
+            # ej. una hora falsa en vez de get_time) — con esto es mucho más fiable.
+            "options": {"temperature": 0.2},
         }
         if tools:
             payload["tools"] = tools
