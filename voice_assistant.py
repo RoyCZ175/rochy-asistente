@@ -155,6 +155,26 @@ def _sounds_like_self_echo(heard_text: str) -> bool:
     return ratio >= SELF_ECHO_SIMILARITY
 
 
+# Qué tan parecida (0 a 1) tiene que ser una palabra oída a la palabra clave
+# para aceptarla igual, aunque Whisper la haya transcrito distinto ("Rochi",
+# "Rocha") en vez de exigir la ortografía exacta configurada.
+WAKE_WORD_SIMILARITY = 0.75
+
+
+def _sounds_like_wake_word(heard_text: str, wake_word: str) -> bool:
+    """Coincidencia exacta primero (rápido); si no, compara palabra por
+    palabra por si la transcripción varió fonéticamente en vez de perder
+    activaciones reales solo por una letra distinta."""
+    wake_norm = _normalize_text(wake_word)
+    heard_norm = _normalize_text(heard_text)
+    if wake_norm in heard_norm:
+        return True
+    return any(
+        difflib.SequenceMatcher(None, word, wake_norm).ratio() >= WAKE_WORD_SIMILARITY
+        for word in re.findall(r"[a-z]+", heard_norm)
+    )
+
+
 def _normalize_text(text: str) -> str:
     """minúsculas y sin acentos, para no depender de coincidencias exactas
     ('Apágate', 'apagate', 'Apágate, deja de escuchar' deben reconocerse igual)."""
@@ -708,7 +728,7 @@ def _voice_loop(
             heard = listener.listen(timeout=5, phrase_time_limit=4)
             if not heard:
                 continue
-            if config.wake_word not in heard.lower():
+            if not _sounds_like_wake_word(heard, config.wake_word):
                 # Antes esto era completamente silencioso — si el micrófono
                 # oía algo pero no coincidía con la palabra clave, no quedaba
                 # ni rastro para saber por qué (¿transcribió mal? ¿oyó otra
