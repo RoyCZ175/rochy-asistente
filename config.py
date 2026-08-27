@@ -43,5 +43,5 @@ class Config:
             spotify_redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback"),
             university_base_url=os.getenv("UNIVERSITY_BASE_URL", "").strip(),
             google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH", "google_credentials.json").strip(),
-            ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2").strip(),
+            ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct").strip(),
         )
