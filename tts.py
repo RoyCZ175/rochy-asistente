@@ -5,6 +5,7 @@ cuando no — más robóticas, pero funcionan sin conexión."""
 import asyncio
 import os
 import tempfile
+import threading
 
 import edge_tts
 import pygame
@@ -20,22 +21,28 @@ class VoiceOutput:
         self.voice = voice
         pygame.mixer.init()
         self._local_engine = None
+        # Un acuse de recibo ("dame un momento") y la respuesta final podrían
+        # querer hablar casi al mismo tiempo desde hilos distintos — este
+        # lock los serializa (el segundo espera a que el primero termine) en
+        # vez de arriesgarse a que se pisen entre sí en pygame.mixer.
+        self._lock = threading.Lock()
 
     def speak(self, text: str) -> None:
         if not text:
             return
-        ui_server.broadcast_state("speaking")
-        # Mientras esto suena por los parlantes, el bucle de voz debe dejar de
-        # escuchar — si no, el micrófono puede captar la propia voz de Rochy
-        # y procesarla como si fuera una orden nueva (retroalimentación).
-        proc.speaking_event.set()
-        try:
-            if connectivity.is_online() and self._speak_cloud(text):
-                return
-            self._speak_local(text)
-        finally:
-            proc.speaking_event.clear()
-            ui_server.broadcast_state("idle")
+        with self._lock:
+            ui_server.broadcast_state("speaking")
+            # Mientras esto suena por los parlantes, el bucle de voz debe dejar de
+            # escuchar — si no, el micrófono puede captar la propia voz de Rochy
+            # y procesarla como si fuera una orden nueva (retroalimentación).
+            proc.speaking_event.set()
+            try:
+                if connectivity.is_online() and self._speak_cloud(text):
+                    return
+                self._speak_local(text)
+            finally:
+                proc.speaking_event.clear()
+                ui_server.broadcast_state("idle")
 
     def _speak_cloud(self, text: str) -> bool:
         path = None

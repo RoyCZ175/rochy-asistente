@@ -1,5 +1,6 @@
 import datetime
 import os
+import random
 import re
 import sys
 import threading
@@ -24,6 +25,7 @@ import control_signal
 import local_brain
 import mode_state
 import processing_state as proc
+import sound_cues
 import study_rag
 import study_state
 import system_control as sc
@@ -62,6 +64,30 @@ def build_response(text: str) -> str:
 
 # Segundos de silencio dentro de una conversación de voz antes de volver a esperar la palabra clave.
 CONVERSATION_TIMEOUT = 30
+
+# Si una tarea (IA + herramientas, o indexar archivos del modo estudio) tarda
+# más que esto sin terminar, se avisa con un acuse de recibo corto — para que
+# no parezca que Rochy se quedó colgada en algo que en realidad solo tarda
+# (ej. encadenar varias herramientas, o cargar el modelo de embeddings la
+# primera vez). Las respuestas rápidas normales nunca llegan a dispararlo.
+ACK_DELAY_SECONDS = 4.0
+ACK_PHRASES = ("Dame un momento.", "Un segundo, sigo en eso.", "Ya casi termino con eso.")
+
+
+def _speak_ack(voice) -> None:
+    if proc.cancel_event.is_set():
+        return  # ya se pidió cancelar, no tiene sentido avisar de algo que se va a abandonar
+    try:
+        voice.speak(random.choice(ACK_PHRASES))
+    except Exception:
+        pass
+
+
+def _start_ack_timer(voice) -> threading.Timer:
+    timer = threading.Timer(ACK_DELAY_SECONDS, _speak_ack, args=(voice,))
+    timer.daemon = True
+    timer.start()
+    return timer
 
 # Frases que cancelan lo que se esté procesando, respondidas al instante (sin
 # esperar turno ni gastar tokens de IA) — chequeadas antes de tomar el lock
@@ -300,6 +326,7 @@ def _process_study_start(subject: str, voice, lock, stop_event) -> None:
         proc.cancel_event.clear()
         proc.busy_event.set()
         ui_server.broadcast_state("thinking")
+        ack_timer = _start_ack_timer(voice)
         try:
             summary = study_rag.index_subject(subject)
             if "No encontré archivos" not in summary:
@@ -310,6 +337,7 @@ def _process_study_start(subject: str, voice, lock, stop_event) -> None:
         except Exception as exc:
             reply = f"No pude preparar el modo estudio de '{subject}': {exc}"
         finally:
+            ack_timer.cancel()
             proc.busy_event.clear()
             ui_server.broadcast_state("idle")
 
@@ -479,6 +507,7 @@ def _process_slow_command(command_text, config, brain, local_brain_ai, voice, lo
         proc.cancel_event.clear()
         proc.busy_event.set()
         ui_server.broadcast_state("thinking")
+        ack_timer = _start_ack_timer(voice)
         try:
             response = _generate_response(command_text, config, brain, local_brain_ai, proc.cancel_event)
             status = _finish_response(config, voice, response)
@@ -486,6 +515,7 @@ def _process_slow_command(command_text, config, brain, local_brain_ai, voice, lo
             _report_error(voice, exc)
             status = "handled"
         finally:
+            ack_timer.cancel()
             proc.busy_event.clear()
             ui_server.broadcast_state("idle")
 
@@ -619,6 +649,11 @@ def _voice_loop(
             while not stop_event.is_set():
                 ui_server.broadcast_state("listening")
                 _wait_while_speaking(stop_event)
+                # Pitido corto: marca el momento exacto en que el micrófono
+                # empieza a escuchar de verdad (útil si no miras la pantalla).
+                # No se pone en la espera de la palabra clave (arriba) para no
+                # sonar cada pocos segundos mientras no hay conversación activa.
+                sound_cues.listening_started()
                 command_text = listener.listen(timeout=CONVERSATION_TIMEOUT, phrase_time_limit=15)
                 if not command_text:
                     # Si algo sigue procesándose de fondo, el silencio no cuenta
@@ -626,6 +661,8 @@ def _voice_loop(
                     if proc.busy_event.is_set():
                         continue
                     break
+
+                sound_cues.listening_stopped()
 
                 if _handle_cancel_if_requested(command_text, voice):
                     continue
