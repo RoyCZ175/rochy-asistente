@@ -1,26 +1,24 @@
 /*
- * Orbe estilo Siri: una "mancha líquida" de colores fluyendo dentro de un
- * círculo, hecha con WebGL (un shader real, no dibujado a mano cuadro por
- * cuadro) — es la técnica que da ese aspecto suave y orgánico en vez de
- * líneas/ondas planas. No depende de ninguna librería externa (todo el
- * código es nuestro), así que sigue funcionando sin internet.
+ * Orbe estilo Siri: varios "blobs" de luz de colores que flotan y se
+ * superponen dentro de un círculo, mezclándose de forma ADITIVA (como luces
+ * de colores, no pintura) — así las zonas donde se cruzan brillan más, que
+ * es justo lo que da esa sensación de "hecho de luz" en vez de una textura
+ * plana. Hecho con WebGL (shader real), sin ninguna librería externa, así
+ * que sigue funcionando sin internet.
  *
  * Uso desde index.html:
  *   const orb = SiriOrb.init(webglCanvas, particleCanvas);
  *   orb.setState('idle' | 'listening' | 'thinking' | 'speaking');
  *
- * Cómo está armado, de afuera hacia adentro:
- *   1. Un shader de fragmento calcula "ruido" (una función matemática que da
- *      valores suaves y aleatorios, como una nube) en varias capas que se
- *      mueven con el tiempo — eso es lo que da el efecto de líquido fluyendo.
- *   2. Ese ruido se colorea con el degradado de marca (azul→morado→rosa→
- *      naranja) según el ángulo, y se recorta a un círculo con borde suave.
- *   3. Encima, un segundo canvas (2D normal) dibuja partículas orbitando y
- *      ondas de "sonar" — mismo mecanismo que antes, pero ahora sobre el
- *      fondo líquido en vez de un círculo plano.
- *   4. El estado (en espera/escuchando/procesando/hablando) solo cambia qué
- *      tan turbulento y rápido se mueve el líquido — el color de marca es
- *      siempre el mismo, es la identidad visual de Rochy.
+ * Puntos clave de esta versión (corrige los problemas de la anterior):
+ *   - El canvas es transparente de verdad (alpha real por píxel) — antes se
+ *     pintaba un color de fondo "a mano" que no coincidía con el fondo real
+ *     de la página, y se veía como un cuadrado oscuro alrededor del orbe.
+ *   - El color ya NO sale de una textura de ruido (se veía como una célula
+ *     bajo microscopio) — ahora son manchas de luz que orbitan y se
+ *     combinan sumando brillo donde se cruzan, con una curva de tono suave
+ *     para que no se "queme" a blanco duro.
+ *   - Paleta de 6 colores (antes 4) para más variedad.
  */
 (function (global) {
   const VERTEX_SRC = `
@@ -30,9 +28,6 @@
     }
   `;
 
-  // El ruido usado aquí es "simplex noise" 2D clásico (dominio público,
-  // versión compacta) — un generador de manchas suaves que se puede animar
-  // desplazando sus coordenadas con el tiempo.
   const FRAGMENT_SRC = `
     precision highp float;
     uniform vec2 uResolution;
@@ -68,59 +63,82 @@
       return 130.0 * dot(m, g);
     }
 
-    // Varias capas de ruido a distinta frecuencia/amplitud ("fractal
-    // brownian motion") — da manchas suaves y orgánicas que fluyen, en vez
-    // de una sola onda. Esto es lo que reemplaza el "reloj de colores por
-    // ángulo" (se veía como una pizza en rebanadas) por algo líquido de verdad.
-    float fbm(vec2 p) {
-      float total = 0.0;
-      float amp = 0.55;
-      for (int i = 0; i < 4; i++) {
-        total += amp * snoise(p);
-        p *= 2.05;
-        amp *= 0.55;
-      }
-      return total;
+    // Paleta de marca con 6 colores (antes 4), recorrida en ciclo continuo.
+    vec3 palette(float t) {
+      vec3 c0 = vec3(0.227, 0.627, 1.0);   // azul
+      vec3 c1 = vec3(0.420, 0.470, 1.0);   // índigo
+      vec3 c2 = vec3(0.608, 0.420, 1.0);   // morado
+      vec3 c3 = vec3(1.0, 0.361, 0.659);   // rosa
+      vec3 c4 = vec3(1.0, 0.647, 0.239);   // naranja
+      vec3 c5 = vec3(0.30, 0.85, 0.95);    // celeste
+      float seg = fract(t) * 6.0;
+      if (seg < 1.0) return mix(c0, c1, smoothstep(0.0, 1.0, seg));
+      if (seg < 2.0) return mix(c1, c2, smoothstep(0.0, 1.0, seg - 1.0));
+      if (seg < 3.0) return mix(c2, c3, smoothstep(0.0, 1.0, seg - 2.0));
+      if (seg < 4.0) return mix(c3, c4, smoothstep(0.0, 1.0, seg - 3.0));
+      if (seg < 5.0) return mix(c4, c5, smoothstep(0.0, 1.0, seg - 4.0));
+      return mix(c5, c0, smoothstep(0.0, 1.0, seg - 5.0));
     }
 
     void main() {
       vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution) / min(uResolution.x, uResolution.y);
       float dist = length(uv);
-      float radius = 0.42;
+      float radius = 0.40;
 
       float t = uTime * uSpeed;
-      float warpScale = 1.5 + uTurbulence * 1.3;
 
-      // El color se deriva del propio campo de ruido (no del ángulo desde el
-      // centro) — así las manchas de color fluyen y se deforman como un
-      // líquido de verdad, en vez de quedar fijas como rebanadas de un reloj.
-      float n1 = fbm(uv * warpScale + vec2(t * 0.16, -t * 0.11));
-      float n2 = fbm(uv * warpScale * 1.8 - vec2(-t * 0.21, t * 0.15) + 6.2);
-      float hue = fract(n1 * 0.5 + n2 * 0.35 + t * 0.02);
-      float shade = n1;
+      // Deforma el espacio suavemente (un solo ruido, escala grande) para
+      // que las manchas de luz no floten en círculos perfectos y se sientan
+      // más orgánicas — sin pasarse de "textura", por eso una sola capa.
+      vec2 warp = vec2(
+        snoise(uv * 1.0 + vec2(t * 0.06, 0.0)),
+        snoise(uv * 1.0 + vec2(0.0, -t * 0.05) + 9.0)
+      ) * 0.05 * (0.6 + uTurbulence);
+      vec2 p = uv + warp;
 
-      vec3 c0 = vec3(0.227, 0.627, 1.0);
-      vec3 c1 = vec3(0.608, 0.420, 1.0);
-      vec3 c2 = vec3(1.0, 0.361, 0.659);
-      vec3 c3 = vec3(1.0, 0.647, 0.239);
+      // Un solo tono domina en cada momento (recorre la paleta lento, nunca
+      // salta) — evita el problema de sumar 5 colores de toda la rueda de
+      // color, que en las zonas donde se cruzan se cancelan hacia blanco/
+      // gris (es básico de teoría del color: mezclar todo el arcoíris da
+      // blanco). Las manchas de abajo solo aportan BRILLO y un ligero
+      // corrimiento hacia el tono VECINO en la paleta (nunca el opuesto),
+      // así siempre se ve saturado y de un color reconocible.
+      vec3 baseHue = palette(t * 0.025);
+      vec3 neighborHue = palette(t * 0.025 + 0.16);
 
-      vec3 color;
-      float seg = hue * 4.0;
-      if (seg < 1.0) color = mix(c0, c1, smoothstep(0.0, 1.0, seg));
-      else if (seg < 2.0) color = mix(c1, c2, smoothstep(0.0, 1.0, seg - 1.0));
-      else if (seg < 3.0) color = mix(c2, c3, smoothstep(0.0, 1.0, seg - 2.0));
-      else color = mix(c3, c0, smoothstep(0.0, 1.0, seg - 3.0));
+      float glow = 0.0;
+      const int BLOBS = 4;
+      for (int i = 0; i < BLOBS; i++) {
+        float fi = float(i);
+        float speed = 0.3 + 0.09 * fi;
+        float ang = t * speed * (0.5 + uTurbulence * 0.7) + fi * 2.1;
+        float orbitR = 0.14 + 0.11 * sin(fi * 2.3 + t * 0.12);
+        vec2 pos = vec2(cos(ang), sin(ang * 1.2)) * orbitR;
+        float d = length(p - pos);
+        glow += pow(smoothstep(0.40, 0.0, d), 1.3);
+      }
+      glow = clamp(glow, 0.0, 2.2);
 
-      color *= 0.72 + 0.55 * shade;
+      // Mezcla también según la posición (no solo el brillo), para que en
+      // un mismo instante se vean los dos tonos vecinos a la vez (uno hacia
+      // arriba, el otro hacia abajo) en vez de un solo color plano.
+      float posMix = smoothstep(-radius * 0.9, radius * 0.9, p.y + warp.x * 0.6);
+      vec3 baseColor = mix(baseHue, neighborHue, clamp(posMix * 0.7 + glow * 0.25, 0.0, 1.0));
+      vec3 col = baseColor * (0.5 + glow * 0.5);
 
-      float edge = smoothstep(radius, radius - 0.035, dist);
-      float glow = smoothstep(radius * 2.3, radius, dist) * 0.32;
+      // Curva de tono suave (evita que se "queme" a blanco duro donde se
+      // superponen varias manchas) — da el aspecto de luz real, no de pintura.
+      col = 1.0 - exp(-col * 1.4);
 
-      vec3 bg = vec3(0.02, 0.024, 0.043);
-      vec3 finalColor = mix(bg, color, edge);
-      finalColor += color * glow * (1.0 - edge);
+      // Máscara: opaco bien adentro del círculo, con un halo suave que se
+      // desvanece hacia afuera — fuera de un radio, alpha llega a 0 de
+      // verdad (canvas transparente), nunca un cuadrado de color de fondo.
+      float inner = smoothstep(radius, radius - 0.09, dist);
+      float haloStrength = clamp(length(col) * 0.5, 0.0, 1.0);
+      float halo = smoothstep(radius * 2.6, radius * 0.5, dist) * 0.5 * haloStrength;
+      float alpha = clamp(max(inner, halo), 0.0, 1.0);
 
-      gl_FragColor = vec4(finalColor, 1.0);
+      gl_FragColor = vec4(col, alpha);
     }
   `;
 
@@ -137,8 +155,8 @@
   }
 
   const STATE_PARAMS = {
-    idle:      { turbulence: 0.15, speed: 0.35 },
-    listening: { turbulence: 0.55, speed: 0.65 },
+    idle:      { turbulence: 0.12, speed: 0.35 },
+    listening: { turbulence: 0.5,  speed: 0.65 },
     thinking:  { turbulence: 0.78, speed: 1.15 },
     speaking:  { turbulence: 0.95, speed: 1.45 },
   };
@@ -147,11 +165,20 @@
   const RIPPLE_LIFE_MS = 1200;
 
   function init(glCanvas, particleCanvas) {
-    const gl = glCanvas.getContext('webgl') || glCanvas.getContext('experimental-webgl');
+    // alpha:true + premultipliedAlpha:false es la combinación que evita el
+    // "cuadrado oscuro": sin esto, el navegador puede mezclar mal el canvas
+    // con la página de fondo y dejar un borde/relleno visible.
+    const gl =
+      glCanvas.getContext('webgl', { alpha: true, premultipliedAlpha: false }) ||
+      glCanvas.getContext('experimental-webgl', { alpha: true, premultipliedAlpha: false });
     let program = null;
     let uniforms = {};
 
     if (gl) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.clearColor(0, 0, 0, 0);
+
       const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SRC);
       const fs = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SRC);
       if (vs && fs) {
@@ -168,8 +195,6 @@
 
     if (program) {
       gl.useProgram(program);
-      // Un solo triángulo que cubre toda la pantalla (más simple que un
-      // rectángulo con dos triángulos, técnica estándar en WebGL).
       const buffer = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
@@ -205,12 +230,12 @@
     let lastRippleAt = 0;
     let ripples = [];
 
-    const PARTICLES = Array.from({ length: 18 }, (_, i) => ({
-      angle: (i / 18) * Math.PI * 2,
-      radius: 0.5 + Math.random() * 0.18,
+    const PARTICLES = Array.from({ length: 16 }, (_, i) => ({
+      angle: (i / 16) * Math.PI * 2,
+      radius: 0.48 + Math.random() * 0.16,
       speed: 0.15 + Math.random() * 0.25,
       size: 1.2 + Math.random() * 1.8,
-      hue: ['#3aa0ff', '#9b6bff', '#ff5ca8', '#ffa53d'][i % 4],
+      hue: ['#3aa0ff', '#9b6bff', '#ff5ca8', '#ffa53d', '#4dd8ef'][i % 5],
     }));
 
     function lerp(a, b, t) { return a + (b - a) * t; }
@@ -228,6 +253,7 @@
 
       if (gl && program) {
         gl.useProgram(program);
+        gl.clear(gl.COLOR_BUFFER_BIT);
         gl.uniform2f(uniforms.resolution, glCanvas.width, glCanvas.height);
         gl.uniform1f(uniforms.time, now / 1000);
         gl.uniform1f(uniforms.turbulence, current.turbulence);
@@ -235,11 +261,9 @@
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       }
 
-      // Capa 2D encima: partículas + ondas de sonar (mismo mecanismo que la
-      // versión anterior, ahora sobre el fondo líquido).
       const w = particleCanvas.width, h = particleCanvas.height;
       const cx = w / 2, cy = h / 2;
-      const R = Math.min(w, h) * 0.42;
+      const R = Math.min(w, h) * 0.40;
       pctx.clearRect(0, 0, w, h);
 
       const rippleGap = RIPPLE_INTERVAL[activeState];
@@ -250,10 +274,10 @@
       ripples = ripples.filter((born) => now - born < RIPPLE_LIFE_MS);
       for (const born of ripples) {
         const t = (now - born) / RIPPLE_LIFE_MS;
-        const rad = R + t * (R * 0.5);
+        const rad = R + t * (R * 0.55);
         pctx.beginPath();
         pctx.arc(cx, cy, rad, 0, Math.PI * 2);
-        pctx.strokeStyle = `rgba(255,255,255,${(1 - t) * 0.25})`;
+        pctx.strokeStyle = `rgba(255,255,255,${(1 - t) * 0.28})`;
         pctx.lineWidth = 1.5;
         pctx.stroke();
       }

@@ -23,8 +23,11 @@
     height: 100%;
     background: var(--bg);
     overflow: hidden;
-    font-family: 'Segoe UI', Consolas, sans-serif;
+    font-family: 'Calibri', 'Segoe UI', sans-serif;
     color: var(--text);
+  }
+  .display-font {
+    font-family: 'Century Gothic', 'Segoe UI Semibold', 'Trebuchet MS', sans-serif;
   }
   #app {
     display: flex;
@@ -129,14 +132,19 @@
 
   #header { text-align: center; flex: 0 0 auto; }
   #assistantName {
-    font-size: 28px;
+    font-size: 30px;
     font-weight: 700;
-    letter-spacing: 6px;
+    letter-spacing: 7px;
     margin: 0;
-    background: linear-gradient(90deg, var(--blue), var(--purple), var(--pink));
+    background: linear-gradient(90deg, var(--blue), var(--purple), var(--pink), var(--orange), var(--purple), var(--blue));
+    background-size: 300% auto;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+    animation: titleShift 10s linear infinite;
+  }
+  @keyframes titleShift {
+    to { background-position: -300% center; }
   }
   #tagline {
     margin: 2px 0 0 0;
@@ -174,8 +182,13 @@
     background: #4dff9a;
     box-shadow: 0 0 6px #4dff9a;
     flex: 0 0 auto;
+    animation: dotPulse 2.2s ease-in-out infinite;
   }
   #statusDot.local { background: #ffb03c; box-shadow: 0 0 6px #ffb03c; }
+  @keyframes dotPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.82); }
+  }
   #statusText { font-size: 12.5px; font-weight: 600; }
   #statusSub { font-size: 10.5px; color: var(--text-dim); }
 
@@ -286,6 +299,11 @@
     font-size: 12.5px;
     line-height: 1.45;
     word-wrap: break-word;
+    animation: bubbleIn 0.25s ease-out;
+  }
+  @keyframes bubbleIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
   }
   .bubble.user {
     align-self: flex-end;
@@ -417,7 +435,7 @@
     </div>
 
     <div id="header">
-      <h1 id="assistantName">ROCHY</h1>
+      <h1 id="assistantName" class="display-font">ROCHY</h1>
       <p id="tagline">Tu asistente inteligente</p>
     </div>
 
@@ -437,25 +455,25 @@
     <div id="cards">
       <button class="card blue" id="modeBtn" title="Cambia entre modo en línea y modo local">
         <div class="cardIcon">🌐</div>
-        <div class="cardTitle">Cambiar modo</div>
+        <div class="cardTitle display-font">Cambiar modo</div>
         <div class="cardSub">Ajusta el estilo de conversación</div>
         <div class="cardArrow">›</div>
       </button>
       <button class="card purple" id="studyBtn" title="Crea una zona de estudio y elige tus apuntes">
         <div class="cardIcon">📖</div>
-        <div class="cardTitle">Estudiar</div>
+        <div class="cardTitle display-font">Estudiar</div>
         <div class="cardSub">Aprende y resuelve tus dudas</div>
         <div class="cardArrow">›</div>
       </button>
       <button class="card orange" id="uploadBtn" title="Agrega más archivos a la materia activa" disabled>
         <div class="cardIcon">🗂</div>
-        <div class="cardTitle">Agregar archivos</div>
+        <div class="cardTitle display-font">Agregar archivos</div>
         <div class="cardSub">Sube documentos para analizar</div>
         <div class="cardArrow">›</div>
       </button>
       <button class="card pink" id="helpBtn" title="¿Qué le puedo decir a Rochy?">
         <div class="cardIcon">❓</div>
-        <div class="cardTitle">Ayuda</div>
+        <div class="cardTitle display-font">Ayuda</div>
         <div class="cardSub">Explora funciones y atajos</div>
         <div class="cardArrow">›</div>
       </button>
