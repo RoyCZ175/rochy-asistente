@@ -21,6 +21,7 @@ if sys.stdout is None or sys.stderr is None:
 import connectivity
 import control_signal
 import local_brain
+import mode_state
 import system_control as sc
 import ui_server
 
@@ -98,11 +99,24 @@ OTHER_TARGET_WORDS = (
 )
 
 
+# Frases para forzar modo local a propósito (ahorrar tokens de Groq) aunque
+# SÍ haya internet, sin tener que desconectar el wifi de verdad — y su
+# contraparte para volver al modo automático (nube si hay internet).
+FORCE_LOCAL_PHRASES = (
+    "modo local", "modo ahorro", "ahorra tokens", "ahorrar tokens",
+    "usa el modelo local", "usa la ia local", "no uses la nube", "no uses internet",
+)
+FORCE_ONLINE_PHRASES = (
+    "modo online", "modo nube", "modo normal", "modo automatico",
+    "usa groq", "vuelve a la nube", "usa el modelo grande",
+)
+
+
 def _classify_control_intent(command_text: str) -> str:
-    """Detecta frases de control (salir/pausar/reiniciar) tolerando variaciones
-    de conjugación, acentos y palabras de más alrededor — no exige una
-    coincidencia exacta con una frase fija. Devuelve 'exit', 'end_conversation',
-    'reset' o 'none'."""
+    """Detecta frases de control (salir/pausar/reiniciar/modo local) tolerando
+    variaciones de conjugación, acentos y palabras de más alrededor — no exige
+    una coincidencia exacta con una frase fija. Devuelve 'exit',
+    'end_conversation', 'reset', 'force_local', 'force_online' o 'none'."""
     text = _normalize_text(command_text)
     targets_something_else = any(word in text for word in OTHER_TARGET_WORDS)
 
@@ -121,6 +135,11 @@ def _classify_control_intent(command_text: str) -> str:
         or ("borra" in text and "conversacion" in text)
     ):
         return "reset"
+
+    if any(p in text for p in FORCE_LOCAL_PHRASES):
+        return "force_local"
+    if any(p in text for p in FORCE_ONLINE_PHRASES):
+        return "force_online"
 
     return "none"
 
@@ -158,6 +177,25 @@ def _handle_command(command_text: str, config, brain, local_brain_ai, voice) -> 
         ui_server.broadcast_transcript("assistant", reply)
         return "handled"
 
+    if intent == "force_local":
+        if local_brain_ai is None:
+            reply = "No tengo ninguna IA local instalada (Ollama) para poder hacer eso."
+        else:
+            mode_state.set_forced_local(True)
+            reply = "Listo, modo local activado. No voy a usar la nube hasta que me digas lo contrario, aunque haya internet."
+        print(f"{config.assistant_name}: {reply} [modo local forzado]")
+        voice.speak(reply)
+        ui_server.broadcast_transcript("assistant", reply)
+        return "handled"
+
+    if intent == "force_online":
+        mode_state.set_forced_local(False)
+        reply = "Listo, vuelvo a usar la nube normalmente cuando haya internet."
+        print(f"{config.assistant_name}: {reply} [modo local desactivado]")
+        voice.speak(reply)
+        ui_server.broadcast_transcript("assistant", reply)
+        return "handled"
+
     ui_server.broadcast_state("thinking")
     quick = parse_command(command_text)
     if quick["action"] in {"time", "open_app"}:
@@ -165,7 +203,9 @@ def _handle_command(command_text: str, config, brain, local_brain_ai, voice) -> 
     else:
         response = local_brain.try_local_answer(command_text, config.assistant_name)
         if response is None:
-            if connectivity.is_online():
+            if mode_state.is_forced_local() and local_brain_ai is not None:
+                response = local_brain_ai.ask(command_text)
+            elif connectivity.is_online():
                 try:
                     response = brain.ask(command_text)
                 except Exception as exc:
