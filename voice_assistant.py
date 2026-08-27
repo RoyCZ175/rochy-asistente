@@ -70,7 +70,10 @@ CONVERSATION_TIMEOUT = 30
 # no parezca que Rochy se quedó colgada en algo que en realidad solo tarda
 # (ej. encadenar varias herramientas, o cargar el modelo de embeddings la
 # primera vez). Las respuestas rápidas normales nunca llegan a dispararlo.
-ACK_DELAY_SECONDS = 4.0
+# (4s era demasiado poco: el modelo LOCAL con herramientas de por medio
+# fácilmente pasa de eso, así que sonaba en casi cada respuesta — molesto en
+# vez de útil. Con 7s solo se dispara en lo que de verdad tarda.)
+ACK_DELAY_SECONDS = 7.0
 ACK_PHRASES = ("Dame un momento.", "Un segundo, sigo en eso.", "Ya casi termino con eso.")
 
 
@@ -662,7 +665,14 @@ def _voice_loop(
             ui_server.broadcast_state("idle")
             _wait_while_speaking(stop_event)
             heard = listener.listen(timeout=5, phrase_time_limit=4)
-            if not heard or config.wake_word not in heard.lower():
+            if not heard:
+                continue
+            if config.wake_word not in heard.lower():
+                # Antes esto era completamente silencioso — si el micrófono
+                # oía algo pero no coincidía con la palabra clave, no quedaba
+                # ni rastro para saber por qué (¿transcribió mal? ¿oyó otra
+                # cosa?). Ahora queda registrado para poder diagnosticarlo.
+                print(f"[info] Oí algo pero no coincide con la palabra clave '{config.wake_word}': {heard!r}")
                 continue
 
             voice.speak("Dime.")
