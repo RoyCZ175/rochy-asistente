@@ -722,7 +722,17 @@ def _voice_loop(
                         continue
                     break
 
-                if proc.speaking_event.is_set():
+                if speaking_now or proc.speaking_event.is_set():
+                    # OJO: se filtra si estaba hablando ANTES de escuchar
+                    # (speaking_now) O JUSTO DESPUÉS (is_set() de nuevo aquí)
+                    # — cubre la carrera en los dos sentidos. Grabar +
+                    # transcribir tarda uno o dos segundos, tiempo de sobra
+                    # para que Rochy empiece o termine de hablar A MITAD de
+                    # esa espera. Si solo mirábamos un lado, su propia voz
+                    # recién grabada se colaba como si fuera un comando real
+                    # del usuario. Esto pasó de verdad: se escuchó preguntar
+                    # algo y lo procesó como si el usuario hubiera repetido
+                    # la misma pregunta.
                     if _is_cancel(command_text):
                         print(f"Tú: {command_text}")
                         ui_server.broadcast_transcript("user", command_text)
