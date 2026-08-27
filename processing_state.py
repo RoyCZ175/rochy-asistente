@@ -7,6 +7,7 @@ Gracias a esto el micrófono/texto pueden seguir escuchando mientras Rochy
 abandona lo que estaba en curso en vez de quedarse atrapado esperándolo."""
 
 import threading
+import time
 
 # Puesto mientras hay una petición (charla/tarea con IA) en curso.
 busy_event = threading.Event()
@@ -33,3 +34,10 @@ speaking_event = threading.Event()
 # el usuario. Comparar lo recién oído contra esto permite detectar y
 # descartar ese eco aunque ya no esté marcada como "hablando".
 last_spoken_text = ""
+
+# Marca de tiempo (time.time()) de la última vez que speaking_event se
+# limpió — ver tts.py. Sirve para dar un ratito extra de "modo cancelación
+# solamente" justo después de hablar (ver POST_SPEECH_GRACE_SECONDS en
+# voice_assistant.py): el eco físico del parlante puede seguir sonando en el
+# cuarto un instante después de que el estado ya diga "no está hablando".
+speech_ended_at = 0.0

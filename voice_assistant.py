@@ -77,6 +77,16 @@ CONVERSATION_TIMEOUT = 30
 ACK_DELAY_SECONDS = 7.0
 ACK_PHRASES = ("Dame un momento.", "Un segundo, sigo en eso.", "Ya casi termino con eso.")
 
+# Ratito extra de "modo cancelación solamente" justo después de que Rochy
+# termina de hablar (ver processing_state.speech_ended_at) — sin auriculares,
+# el eco físico del parlante puede seguir sonando en el cuarto un instante
+# después de que speaking_event ya se limpió. Solo mirar el flag de estado
+# no alcanza: el micrófono puede haber EMPEZADO a grabar antes de que
+# arrancara a hablar y terminado de grabar recién cuando ya llevaba un rato
+# en silencio, sin que ninguno de los dos chequeos (antes/después) coincida
+# con el momento exacto en que sí estaba hablando.
+POST_SPEECH_GRACE_SECONDS = 1.5
+
 
 def _speak_ack(voice) -> None:
     if proc.cancel_event.is_set():
@@ -726,17 +736,22 @@ def _voice_loop(
             # "bloqueado" varios segundos sin poder decir nada.
             while not stop_event.is_set():
                 speaking_now = proc.speaking_event.is_set()
-                ui_server.broadcast_state("speaking" if speaking_now else "listening")
-                if not speaking_now:
+                in_echo_grace = not speaking_now and (
+                    time.time() - proc.speech_ended_at < POST_SPEECH_GRACE_SECONDS
+                )
+                treat_as_speaking = speaking_now or in_echo_grace
+                ui_server.broadcast_state("speaking" if treat_as_speaking else "listening")
+                if not treat_as_speaking:
                     # Pitido corto: marca el momento exacto en que el micrófono
                     # empieza a escuchar de verdad de un turno normal (no
-                    # mientras habla — ahí no, para no sonar de más).
+                    # mientras habla ni en el ratito justo después — ahí no,
+                    # para no sonar de más).
                     sound_cues.listening_started()
-                if speaking_now:
-                    # Ventanas cortas mientras habla — así una cancelación se
-                    # detecta rápido, en vez de esperar hasta 15s a que la
-                    # frase "termine" (que con su propia voz de fondo podría
-                    # tardar en darse por terminada).
+                if treat_as_speaking:
+                    # Ventanas cortas mientras habla (o en el ratito justo
+                    # después) — así una cancelación se detecta rápido, en vez
+                    # de esperar hasta 15s a que la frase "termine" (que con su
+                    # propia voz de fondo podría tardar en darse por terminada).
                     command_text = listener.listen(timeout=1.5, phrase_time_limit=3)
                 else:
                     command_text = listener.listen(timeout=CONVERSATION_TIMEOUT, phrase_time_limit=15)
@@ -747,10 +762,11 @@ def _voice_loop(
                         continue
                     break
 
-                if speaking_now or proc.speaking_event.is_set():
-                    # OJO: se filtra si estaba hablando ANTES de escuchar
-                    # (speaking_now) O JUSTO DESPUÉS (is_set() de nuevo aquí)
-                    # — cubre la carrera en los dos sentidos. Grabar +
+                if treat_as_speaking or proc.speaking_event.is_set():
+                    # OJO: se filtra si estaba hablando (o recién terminó de
+                    # hablar, ver POST_SPEECH_GRACE_SECONDS) ANTES de escuchar
+                    # (treat_as_speaking) O JUSTO DESPUÉS (is_set() de nuevo
+                    # aquí) — cubre la carrera en los dos sentidos. Grabar +
                     # transcribir tarda uno o dos segundos, tiempo de sobra
                     # para que Rochy empiece o termine de hablar A MITAD de
                     # esa espera. Si solo mirábamos un lado, su propia voz

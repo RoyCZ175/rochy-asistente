@@ -6,6 +6,7 @@ import asyncio
 import os
 import tempfile
 import threading
+import time
 
 import edge_tts
 import numpy as np
@@ -54,6 +55,7 @@ class VoiceOutput:
                 self._speak_local(text, on_start)
             finally:
                 proc.speaking_event.clear()
+                proc.speech_ended_at = time.time()
                 ui_server.broadcast_state("idle")
 
     def _speak_cloud(self, text: str, on_start=None) -> bool:
