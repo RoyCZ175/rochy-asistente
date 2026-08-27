@@ -145,12 +145,18 @@
   }
 
   #orbWrap {
-    display: flex;
-    justify-content: center;
+    position: relative;
+    width: 260px;
+    height: 260px;
+    margin: 4px auto 2px auto;
     flex: 0 0 auto;
-    margin: 4px 0 2px 0;
   }
-  canvas#orb { display: block; }
+  #orbWrap canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
 
   #statusPill {
     align-self: center;
@@ -416,7 +422,8 @@
     </div>
 
     <div id="orbWrap">
-      <canvas id="orb" width="260" height="260"></canvas>
+      <canvas id="orbGl"></canvas>
+      <canvas id="orbParticles"></canvas>
     </div>
 
     <div id="statusPill">
@@ -500,128 +507,30 @@
   </div>
 </div>
 
+<script src="orb.js"></script>
 <script>
-// ============================================================
-// Orbe: anillo con degradado de marca (azul→morado→rosa→naranja)
-// y ondas fluyendo dentro, con partículas alrededor. El color es
-// siempre el mismo (es la identidad visual de Rochy); lo que cambia
-// según el estado es el MOVIMIENTO — más calmado en espera, más vivo
-// escuchando/hablando, y un giro más notorio mientras procesa.
-// ============================================================
-const canvas = document.getElementById('orb');
-const ctx = canvas.getContext('2d');
-const W = canvas.width, H = canvas.height;
-const cx = W / 2, cy = H / 2;
-const RING_R = 92;
+// El orbe en sí (el shader líquido tipo Siri) vive en orb.js, en su propio
+// archivo — aquí solo lo inicializamos y le avisamos de los cambios de
+// estado. El color de marca es siempre el mismo; el estado solo cambia qué
+// tan turbulento/rápido se mueve, y los textos de la píldora de estado.
+const orb = SiriOrb.init(document.getElementById('orbGl'), document.getElementById('orbParticles'));
 
-const STATES = {
-  idle:      { waveAmp: 6,  waveSpeed: 0.6, spin: 0.05, label: 'En línea',    sub: 'Siempre listo para ayudarte' },
-  listening: { waveAmp: 11, waveSpeed: 1.1, spin: 0.12, label: 'Escuchando',  sub: 'Di tu mensaje cuando quieras' },
-  thinking:  { waveAmp: 9,  waveSpeed: 1.6, spin: 0.55, label: 'Procesando',  sub: 'Dame un momento…' },
-  speaking:  { waveAmp: 14, waveSpeed: 2.0, spin: 0.18, label: 'Hablando',    sub: 'Escuchando la respuesta' },
+const STATE_LABELS = {
+  idle:      { label: 'En línea',   sub: 'Siempre listo para ayudarte' },
+  listening: { label: 'Escuchando', sub: 'Di tu mensaje cuando quieras' },
+  thinking:  { label: 'Procesando', sub: 'Dame un momento…' },
+  speaking:  { label: 'Hablando',   sub: 'Escuchando la respuesta' },
 };
 
-let current = { waveAmp: STATES.idle.waveAmp, waveSpeed: STATES.idle.waveSpeed, spin: STATES.idle.spin };
-let target = { ...current };
-let activeStateName = 'idle';
-
-function lerp(a, b, t) { return a + (b - a) * t; }
-
 function setState(name) {
-  if (!STATES[name]) return;
-  target = { waveAmp: STATES[name].waveAmp, waveSpeed: STATES[name].waveSpeed, spin: STATES[name].spin };
-  activeStateName = name;
+  if (!STATE_LABELS[name]) return;
+  orb.setState(name);
   if (!studySubjectActive) {
-    document.getElementById('statusText').textContent = STATES[name].label;
-    document.getElementById('statusSub').textContent = STATES[name].sub;
+    document.getElementById('statusText').textContent = STATE_LABELS[name].label;
+    document.getElementById('statusSub').textContent = STATE_LABELS[name].sub;
   }
   document.getElementById('statusDot').classList.toggle('local', currentAiMode === 'local' && name === 'idle');
 }
-
-// partículas suaves alrededor del anillo
-const PARTICLES = Array.from({ length: 22 }, (_, i) => ({
-  angle: (i / 22) * Math.PI * 2,
-  radius: RING_R + 14 + Math.random() * 26,
-  speed: 0.15 + Math.random() * 0.25,
-  size: 1 + Math.random() * 1.8,
-  hue: ['#3aa0ff', '#9b6bff', '#ff5ca8', '#ffa53d'][i % 4],
-}));
-
-let ringRotation = 0;
-
-function step(now) {
-  for (const k of ['waveAmp', 'waveSpeed', 'spin']) {
-    current[k] = lerp(current[k], target[k], 0.04);
-  }
-  ringRotation += 0.0009 + current.spin * 0.002;
-
-  ctx.clearRect(0, 0, W, H);
-
-  // resplandor suave detrás del anillo
-  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, RING_R * 1.9);
-  glow.addColorStop(0, 'rgba(120,100,255,0.20)');
-  glow.addColorStop(1, 'rgba(5,6,11,0)');
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.arc(cx, cy, RING_R * 1.9, 0, Math.PI * 2);
-  ctx.fill();
-
-  // ondas fluyendo dentro del círculo (recortadas al círculo)
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, RING_R - 3, 0, Math.PI * 2);
-  ctx.clip();
-  const waveColors = ['rgba(58,160,255,0.55)', 'rgba(155,107,255,0.5)', 'rgba(255,92,168,0.45)'];
-  waveColors.forEach((color, i) => {
-    ctx.beginPath();
-    const phase = now / (900 / current.waveSpeed) + i * 2.1;
-    for (let x = cx - RING_R; x <= cx + RING_R; x += 4) {
-      const y = cy + Math.sin((x / 26) + phase + i) * current.waveAmp * (1 - Math.abs(x - cx) / (RING_R * 1.3));
-      if (x === cx - RING_R) ctx.moveTo(x, y + i * 10 - 10);
-      else ctx.lineTo(x, y + i * 10 - 10);
-    }
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2.2;
-    ctx.stroke();
-  });
-  ctx.restore();
-
-  // anillo con degradado de marca
-  const ringGrad = ctx.createConicGradient ? ctx.createConicGradient(ringRotation, cx, cy) : null;
-  if (ringGrad) {
-    ringGrad.addColorStop(0, '#3aa0ff');
-    ringGrad.addColorStop(0.33, '#9b6bff');
-    ringGrad.addColorStop(0.66, '#ff5ca8');
-    ringGrad.addColorStop(1, '#ffa53d');
-    ctx.strokeStyle = ringGrad;
-  } else {
-    ctx.strokeStyle = '#9b6bff'; // respaldo si el navegador no soporta conic gradient
-  }
-  ctx.lineWidth = 3.5;
-  ctx.shadowBlur = 18;
-  ctx.shadowColor = '#9b6bffaa';
-  ctx.beginPath();
-  ctx.arc(cx, cy, RING_R, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // partículas orbitando alrededor del anillo
-  for (const p of PARTICLES) {
-    p.angle += 0.004 * p.speed * (1 + current.spin);
-    const rad = p.radius + Math.sin(now / 600 + p.angle) * 3;
-    const x = cx + Math.cos(p.angle) * rad;
-    const y = cy + Math.sin(p.angle) * rad;
-    ctx.beginPath();
-    ctx.arc(x, y, p.size, 0, Math.PI * 2);
-    ctx.fillStyle = p.hue;
-    ctx.globalAlpha = 0.55;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  }
-
-  requestAnimationFrame(step);
-}
-requestAnimationFrame(step);
 
 // --- Transcript ---
 const log = document.getElementById('log');
