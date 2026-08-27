@@ -206,43 +206,37 @@
     flex: 0 0 auto;
     margin-bottom: 14px;
   }
+  /* Borde con degradado RGB girando — técnica de doble fondo (uno solo
+     visible dentro del borde, otro solo en el área del borde mismo), sin
+     máscaras: la versión anterior usaba mask-composite para recortar un
+     anillo fino, pero no se recortaba bien en esta ventana y el degradado
+     se filtraba por dentro de toda la tarjeta como franjas diagonales. Esta
+     técnica es más simple y no tiene ese problema: el degradado JAMÁS pinta
+     nada fuera del borde, porque solo existe ahí. */
+  @property --angle {
+    syntax: '<angle>';
+    inherits: false;
+    initial-value: 0deg;
+  }
   .card {
+    --angle: 0deg;
     position: relative;
-    background: var(--panel);
-    border: 1px solid transparent;
+    border: 1.5px solid transparent;
     border-radius: 14px;
+    background:
+      linear-gradient(var(--panel), var(--panel)) padding-box,
+      conic-gradient(from var(--angle), var(--blue), var(--purple), var(--pink), var(--orange), var(--green), var(--blue)) border-box;
     padding: 14px 14px 12px 14px;
     cursor: pointer;
     text-align: left;
-    transition: transform 0.15s, box-shadow 0.15s;
+    transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
     color: var(--text);
     font-family: inherit;
-    /* El borde girando es un rectángulo (no cuadrado) rotando con transform
-       — sin esto, las esquinas se salen del área de la tarjeta al girar. */
-    overflow: hidden;
+    animation: spinBorder 8s linear infinite;
   }
-  /* Borde con degradado RGB girando, sutil en reposo y más fuerte al pasar
-     el mouse — el toque "gamer" que pediste, sin que quede encendido a
-     máximo todo el tiempo (cansaría a la vista). */
-  .card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    padding: 1.5px;
-    border-radius: inherit;
-    background: conic-gradient(from 0deg, var(--blue), var(--purple), var(--pink), var(--orange), var(--green), var(--blue));
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    opacity: 0.38;
-    animation: spinBorder 7s linear infinite;
-    pointer-events: none;
-  }
-  @keyframes spinBorder { to { transform: rotate(1turn); } }
-  .card:hover { transform: translateY(-3px); box-shadow: 0 10px 26px #00000066; }
-  .card:hover::before { opacity: 1; }
-  .card:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-  .card:disabled::before { animation: none; opacity: 0.15; }
+  @keyframes spinBorder { to { --angle: 360deg; } }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 10px 26px #00000066; filter: brightness(1.15); }
+  .card:disabled { opacity: 0.4; cursor: not-allowed; transform: none; animation: none; }
   .card .cardIcon {
     width: 36px; height: 36px;
     border-radius: 10px;
