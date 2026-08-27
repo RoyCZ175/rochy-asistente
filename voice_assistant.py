@@ -100,10 +100,11 @@ CANCEL_PHRASES = {
 }
 
 # Frases que pausan la conversación — coincidencia EXACTA (como CANCEL_PHRASES
-# arriba), no de subcadena: "gracias" suelto en medio de una frase más larga
-# ("gracias por lo de ayer, pero...") no debe pausar la app.
+# arriba), no de subcadena. "gracias" se quitó por completo: el micrófono a
+# veces la "escucha" de la nada (ruido/mala transcripción) en medio de una
+# conversación normal, y pausar la app de golpe por eso era muy molesto. Para
+# pausar de verdad, usa "descansa" (root-word, más abajo) u otra de estas.
 END_CONVERSATION_PHRASES = {
-    "gracias", "muchas gracias", "gracias rochy", "listo gracias",
     "eso es todo", "eso seria todo", "nada mas",
 }
 
