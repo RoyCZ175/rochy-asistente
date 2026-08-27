@@ -120,9 +120,14 @@
 
   #topRow {
     display: flex;
-    justify-content: flex-end;
+    justify-content: flex-start;
+    flex: 0 0 auto;
   }
-  #settingsBtn {
+  /* Oculto por defecto: solo aparece en pantallas chicas (media query al
+     final del archivo), donde la barra lateral deja de ser una columna fija
+     y pasa a ser un cajón que se abre con este botón. */
+  #hamburgerBtn {
+    display: none;
     width: 34px;
     height: 34px;
     border-radius: 10px;
@@ -130,11 +135,11 @@
     border: 1px solid var(--border);
     color: var(--text-dim);
     cursor: pointer;
-    display: flex;
     align-items: center;
     justify-content: center;
   }
-  #settingsBtn:hover { color: var(--text); border-color: var(--blue); }
+  #hamburgerBtn:hover { color: var(--text); border-color: var(--blue); }
+  #sidebarBackdrop { display: none; }
 
   /* ================= Diseño responsive: prioriza el chat =================
      En cuanto hay una conversación de verdad (#main.chatting, activado desde
@@ -186,7 +191,9 @@
     width: 100%;
     height: 100%;
   }
-  #main.chatting #orbWrap { width: 68px; height: 68px; margin: 6px auto; }
+  /* A propósito NO se achica en modo "chatting" (a diferencia del
+     encabezado/tarjetas) — al usuario le gusta que la esfera se quede en
+     su tamaño normal siempre. */
 
   #statusPill {
     align-self: center;
@@ -535,6 +542,36 @@
     padding-top: 2px;
     flex: 0 0 auto;
   }
+
+  /* ================= Pantalla chica: barra lateral como cajón =================
+     Con la ventana angosta, una columna fija de 76px le resta demasiado
+     espacio al chat — se oculta y aparece el botón de menú (arriba a la
+     izquierda) para abrirla como un cajón flotante encima de todo. */
+  @media (max-width: 700px) {
+    #hamburgerBtn { display: flex; }
+    #sidebar {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      z-index: 60;
+      box-shadow: 12px 0 32px #000000aa;
+    }
+    #sidebar.open { transform: translateX(0); }
+    #sidebarBackdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 3, 10, 0.55);
+      z-index: 55;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    #sidebarBackdrop.open { opacity: 1; pointer-events: auto; }
+  }
 </style>
 </head>
 <body>
@@ -564,12 +601,19 @@
     </div>
     <div class="avatar" title="Roger">R</div>
   </div>
+  <!-- Solo se ve (y hace algo) en pantallas chicas — un fondo oscuro detrás
+       de la barra lateral cuando se abre como cajón, para cerrarla con un
+       clic afuera. -->
+  <div id="sidebarBackdrop"></div>
 
   <!-- ============ Contenido principal ============ -->
   <div id="main">
     <div id="topRow">
-      <button id="settingsBtn" title="Ayuda y ajustes">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="9" cy="7" r="1.6" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="10" cy="17" r="1.6" fill="currentColor" stroke="none"/></svg>
+      <!-- Solo visible en pantallas chicas (ver @media más abajo) — abre la
+           barra lateral como un cajón, en vez de dejarla fija ocupando
+           espacio en una ventana angosta. -->
+      <button id="hamburgerBtn" title="Menú">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
       </button>
     </div>
 
@@ -907,8 +951,25 @@ async function showStudyPicker() {
 }
 
 document.getElementById('helpBtn').addEventListener('click', showHelp);
-document.getElementById('settingsBtn').addEventListener('click', showHelp);
 document.getElementById('studyBtn').addEventListener('click', showStudyPicker);
+
+// --- Barra lateral como cajón en pantallas chicas ---
+const sidebarEl = document.getElementById('sidebar');
+const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+function openSidebar() {
+  sidebarEl.classList.add('open');
+  sidebarBackdrop.classList.add('open');
+}
+function closeSidebar() {
+  sidebarEl.classList.remove('open');
+  sidebarBackdrop.classList.remove('open');
+}
+document.getElementById('hamburgerBtn').addEventListener('click', openSidebar);
+sidebarBackdrop.addEventListener('click', closeSidebar);
+// Elegir cualquier ícono de la barra la cierra sola (si estaba abierta como cajón).
+sidebarEl.querySelectorAll('button').forEach((btn) => {
+  btn.addEventListener('click', closeSidebar);
+});
 
 // --- Barra lateral: accesos rápidos a las mismas acciones que las tarjetas ---
 document.getElementById('navChat').addEventListener('click', () => {
