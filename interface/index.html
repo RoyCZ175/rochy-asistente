@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <title>Rochy</title>
 <style>
+  :root {
+    /* Color del "resplandor" de fondo, actualizado en cada cuadro desde JS
+       para que siga exactamente el mismo color (ya suavizado) que el orbe —
+       nunca un color fijo, siempre el de verdad según el estado actual. */
+    --glow-r: 70;
+    --glow-g: 130;
+    --glow-b: 255;
+  }
   html, body {
     margin: 0;
     padding: 0;
@@ -14,7 +22,24 @@
     font-family: 'Segoe UI', Consolas, monospace;
     color: #cfe8ff;
   }
+  /* Resplandor ambiental detrás de todo: sutil a propósito (opacidad baja,
+     muy difuminado) — da vida y contexto de color sin distraer de la
+     conversación ni cansar la vista. Solo cambia de color, no se mueve. */
+  #bgGlow {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: radial-gradient(
+      circle at 50% 24%,
+      rgb(var(--glow-r) var(--glow-g) var(--glow-b) / 0.16),
+      transparent 55%
+    );
+    transition: background 0.4s ease;
+  }
   #app {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     height: 100vh;
@@ -26,7 +51,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 12px 0 4px 0;
+    padding: 10px 0 4px 0;
     flex: 0 0 auto;
   }
   canvas#orb {
@@ -230,10 +255,11 @@
 </style>
 </head>
 <body>
+<div id="bgGlow"></div>
 <div id="app">
   <div id="orbWrap">
     <div id="assistantName">ROCHY</div>
-    <canvas id="orb" width="120" height="120"></canvas>
+    <canvas id="orb" width="160" height="160"></canvas>
     <div id="stateLabel">EN ESPERA</div>
   </div>
 
@@ -309,10 +335,14 @@ const STATES = {
 
 let current = { ...STATES.idle };
 let target = { ...STATES.idle };
+// El nombre del estado LÓGICO actual (no el color/pulso ya suavizado) — de
+// aquí decide qué animación extra dibujar (ondas, anillo girando, etc.).
+let activeStateName = 'idle';
 
 function setState(name) {
   if (!STATES[name]) return;
   target = { ...STATES[name] };
+  activeStateName = name;
   document.getElementById('stateLabel').textContent = STATES[name].label;
 }
 
@@ -326,6 +356,16 @@ const PARTICLES = Array.from({ length: 14 }, (_, i) => ({
   size: 1 + Math.random() * 1.5,
 }));
 
+// Ondas que salen del núcleo mientras escucha o habla (como un radar/sonar) —
+// se disparan solo en esos dos estados, a distinto ritmo cada uno, y se
+// desvanecen solas. En "procesando" en vez de ondas se dibuja un anillo
+// girando (ver más abajo), y en "en espera" no hay nada extra: solo la
+// respiración suave del núcleo, para que no canse a la vista estando quieto.
+let ripples = [];
+let lastRippleAt = 0;
+const RIPPLE_INTERVAL = { listening: 1000, speaking: 650 };
+const RIPPLE_LIFE_MS = 1200;
+
 function step(now) {
   for (const k of ['pulse', 'amplitude']) {
     current[k] = lerp(current[k], target[k], 0.05);
@@ -334,6 +374,12 @@ function step(now) {
 
   ctx.clearRect(0, 0, W, H);
   const [r, g, b] = current.color;
+
+  // El fondo respira con el mismo color exacto del orbe, ya suavizado —
+  // nunca un salto brusco de color, siempre seguido de la misma transición.
+  document.documentElement.style.setProperty('--glow-r', Math.round(r));
+  document.documentElement.style.setProperty('--glow-g', Math.round(g));
+  document.documentElement.style.setProperty('--glow-b', Math.round(b));
 
   const coreR = 20 + Math.sin(now / 450 * current.pulse) * 7 * current.amplitude;
 
@@ -344,6 +390,36 @@ function step(now) {
   ctx.beginPath();
   ctx.arc(cx, cy, coreR * 2.6, 0, Math.PI * 2);
   ctx.fill();
+
+  // Ondas (solo escuchando/hablando)
+  const rippleGap = RIPPLE_INTERVAL[activeStateName];
+  if (rippleGap && now - lastRippleAt > rippleGap) {
+    ripples.push(now);
+    lastRippleAt = now;
+  }
+  ripples = ripples.filter((born) => now - born < RIPPLE_LIFE_MS);
+  for (const born of ripples) {
+    const t = (now - born) / RIPPLE_LIFE_MS;
+    const radius = coreR + t * 46;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${r},${g},${b},${(1 - t) * 0.45})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // Anillo girando (solo procesando) — distingue claramente "pensando" de
+  // solo estar pulsando, sin necesitar texto adicional.
+  if (activeStateName === 'thinking') {
+    const ringR = coreR + 14;
+    const rotation = (now / 900) % (Math.PI * 2);
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringR, rotation, rotation + Math.PI * 1.1);
+    ctx.strokeStyle = `rgba(${r},${g},${b},0.8)`;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
 
   ctx.beginPath();
   ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
