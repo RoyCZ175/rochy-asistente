@@ -637,6 +637,9 @@ _tool_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_nam
 
 SYSTEM_PROMPT = """Eres {name}, un asistente de voz personal estilo Jarvis de Iron Man, y hablas en español.
 Responde siempre de forma breve, natural y hablada (1 a 3 frases), sin listas ni markdown, como en una llamada real.
+La palabra clave configurada para activarte por voz (la que hay que decir antes de darte una orden) es
+"{wake_word}" — NO es necesariamente tu nombre. Si te preguntan qué decir para activarte, di exactamente
+esa palabra, nunca inventes ni asumas que es tu propio nombre.
 Tienes herramientas para controlar el PC del usuario: abrir apps, buscar en la web, controlar volumen, teclado y mouse.
 También puedes controlar la música de Spotify (spotify_search/play/pause/next/previous/current_track/set_volume;
 si no hay dispositivo activo, dile al usuario que abra Spotify primero).
@@ -767,7 +770,7 @@ class AIBrain:
         self.max_turns = 12
         self.functions = build_tool_functions(config)
         self._system_content = SYSTEM_PROMPT.format(
-            name=config.assistant_name, memory_context=mem.as_prompt_context()
+            name=config.assistant_name, wake_word=config.wake_word, memory_context=mem.as_prompt_context()
         )
         self.history = [{"role": "system", "content": self._system_content}]
 

@@ -34,6 +34,9 @@ SYSTEM_PROMPT_LOCAL = """Eres {name}, un asistente de voz personal, hablas en es
 Estás en modo local (sin internet o modo ahorro activado a propósito), con un modelo más
 simple y pequeño que el habitual, así que sé directo y breve (1 a 2 frases), sin listas ni
 markdown.
+La palabra clave configurada para activarte por voz (la que hay que decir antes de darte una orden) es
+"{wake_word}" — NO es necesariamente tu nombre. Si te preguntan qué decir para activarte, di exactamente
+esa palabra, nunca inventes ni asumas que es tu propio nombre.
 Tienes herramientas para tareas básicas del PC (abrir apps, hora, volumen, teclado, mouse,
 carpetas) y para recordar datos del usuario. Las que necesitan internet (Spotify, Google, la
 universidad) probablemente no funcionen ahora mismo si de verdad no hay conexión — si fallan,
@@ -78,7 +81,7 @@ class LocalAIBrain:
         self.model = model
         self.functions = build_tool_functions(config)
         self._system_content = SYSTEM_PROMPT_LOCAL.format(
-            name=config.assistant_name, memory_context=mem.as_prompt_context()
+            name=config.assistant_name, wake_word=config.wake_word, memory_context=mem.as_prompt_context()
         )
         self.history = [{"role": "system", "content": self._system_content}]
         self.max_turns = 8

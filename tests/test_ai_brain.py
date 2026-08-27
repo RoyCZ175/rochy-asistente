@@ -8,6 +8,7 @@ class FakeConfig:
     groq_api_key: str = "fake-key-for-tests"
     groq_model: str = "openai/gpt-oss-20b"
     assistant_name: str = "Jarvis"
+    wake_word: str = "jarvis"
 
 
 def test_every_tool_has_a_matching_function():
