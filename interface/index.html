@@ -5,10 +5,14 @@
 <title>Rochy</title>
 <style>
   :root {
-    --blue: #3aa0ff;
-    --purple: #9b6bff;
-    --pink: #ff5ca8;
-    --orange: #ffa53d;
+    /* Paleta "gamer": neones más saturados que antes, para las tarjetas y
+       botones (el orbe mantiene su propia paleta interna, esto es solo
+       para el resto de la interfaz). */
+    --blue: #00d9ff;
+    --purple: #b347ff;
+    --pink: #ff2f9e;
+    --orange: #ff9900;
+    --green: #3dffa0;
     --bg: #05060b;
     --panel: #0c0f1a;
     --border: #1c2340;
@@ -23,11 +27,11 @@
     height: 100%;
     background: var(--bg);
     overflow: hidden;
-    font-family: 'Calibri', 'Segoe UI', sans-serif;
+    font-family: 'Segoe UI', 'Calibri', sans-serif;
     color: var(--text);
   }
   .display-font {
-    font-family: 'Century Gothic', 'Segoe UI Semibold', 'Trebuchet MS', sans-serif;
+    font-family: 'Bahnschrift', 'Segoe UI Semibold', 'Trebuchet MS', sans-serif;
   }
   #app {
     display: flex;
@@ -126,7 +130,9 @@
     border: 1px solid var(--border);
     color: var(--text-dim);
     cursor: pointer;
-    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   #settingsBtn:hover { color: var(--text); border-color: var(--blue); }
 
@@ -136,8 +142,8 @@
     font-weight: 700;
     letter-spacing: 7px;
     margin: 0;
-    background: linear-gradient(90deg, var(--blue), var(--purple), var(--pink), var(--orange), var(--purple), var(--blue));
-    background-size: 300% auto;
+    background: linear-gradient(90deg, var(--blue), var(--purple), var(--pink), var(--orange), var(--green), var(--blue));
+    background-size: 350% auto;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -203,25 +209,47 @@
   .card {
     position: relative;
     background: var(--panel);
-    border: 1px solid var(--border);
+    border: 1px solid transparent;
     border-radius: 14px;
     padding: 14px 14px 12px 14px;
     cursor: pointer;
     text-align: left;
-    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+    transition: transform 0.15s, box-shadow 0.15s;
     color: var(--text);
     font-family: inherit;
+    /* El borde girando es un rectángulo (no cuadrado) rotando con transform
+       — sin esto, las esquinas se salen del área de la tarjeta al girar. */
+    overflow: hidden;
   }
-  .card:hover { transform: translateY(-2px); }
+  /* Borde con degradado RGB girando, sutil en reposo y más fuerte al pasar
+     el mouse — el toque "gamer" que pediste, sin que quede encendido a
+     máximo todo el tiempo (cansaría a la vista). */
+  .card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: 1.5px;
+    border-radius: inherit;
+    background: conic-gradient(from 0deg, var(--blue), var(--purple), var(--pink), var(--orange), var(--green), var(--blue));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0.38;
+    animation: spinBorder 7s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes spinBorder { to { transform: rotate(1turn); } }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 10px 26px #00000066; }
+  .card:hover::before { opacity: 1; }
   .card:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .card:disabled::before { animation: none; opacity: 0.15; }
   .card .cardIcon {
-    width: 34px; height: 34px;
-    border-radius: 9px;
+    width: 36px; height: 36px;
+    border-radius: 10px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 16px;
     margin-bottom: 9px;
   }
-  .card .cardTitle { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+  .card .cardTitle { font-size: 13px; font-weight: 700; margin-bottom: 2px; letter-spacing: 0.3px; }
   .card .cardSub { font-size: 10.5px; color: var(--text-dim); line-height: 1.3; }
   .card .cardArrow {
     position: absolute;
@@ -233,15 +261,10 @@
     background: #ffffff10;
     color: var(--text-dim);
   }
-  .card.blue   { }
-  .card.blue:hover   { border-color: var(--blue); box-shadow: 0 0 14px #3aa0ff33; }
-  .card.blue .cardIcon   { background: #3aa0ff22; color: var(--blue); }
-  .card.purple:hover { border-color: var(--purple); box-shadow: 0 0 14px #9b6bff33; }
-  .card.purple .cardIcon { background: #9b6bff22; color: var(--purple); }
-  .card.orange:hover { border-color: var(--orange); box-shadow: 0 0 14px #ffa53d33; }
-  .card.orange .cardIcon { background: #ffa53d22; color: var(--orange); }
-  .card.pink:hover   { border-color: var(--pink); box-shadow: 0 0 14px #ff5ca833; }
-  .card.pink .cardIcon   { background: #ff5ca822; color: var(--pink); }
+  .card.blue   .cardIcon { background: linear-gradient(135deg, #00d9ff2e, #00d9ff10); color: var(--blue);   box-shadow: 0 0 12px #00d9ff2e; }
+  .card.purple .cardIcon { background: linear-gradient(135deg, #b347ff2e, #b347ff10); color: var(--purple); box-shadow: 0 0 12px #b347ff2e; }
+  .card.orange .cardIcon { background: linear-gradient(135deg, #ff99002e, #ff990010); color: var(--orange); box-shadow: 0 0 12px #ff99002e; }
+  .card.pink   .cardIcon { background: linear-gradient(135deg, #ff2f9e2e, #ff2f9e10); color: var(--pink);   box-shadow: 0 0 12px #ff2f9e2e; }
 
   /* ================= Panel de ayuda ================= */
   #helpPanel {
@@ -418,12 +441,22 @@
 
   <!-- ============ Barra lateral ============ -->
   <div id="sidebar">
-    <button class="brand" id="brandBtn" title="Reinicia la conversación">✦</button>
+    <button class="brand" id="brandBtn" title="Reinicia la conversación">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2l2.2 6.8L21 11l-6.8 2.2L12 20l-2.2-6.8L3 11l6.8-2.2L12 2Z"/></svg>
+    </button>
     <div class="navIcons">
-      <button class="navBtn active" id="navChat" title="Ir al chat">💬</button>
-      <button class="navBtn" id="navStudy" title="Modo estudio">🎓</button>
-      <button class="navBtn" id="navFiles" title="Agregar archivos">📁</button>
-      <button class="navBtn" id="navHelp" title="Ayuda">❓</button>
+      <button class="navBtn active" id="navChat" title="Ir al chat">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 1 3.5 6.6L4 20l1.2-3.8A7.96 7.96 0 0 1 4 12Z"/></svg>
+      </button>
+      <button class="navBtn" id="navStudy" title="Modo estudio">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 2 9l10 5 10-5-10-5Z"/><path d="M6 11.5V17c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-5.5"/></svg>
+      </button>
+      <button class="navBtn" id="navFiles" title="Agregar archivos">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8A2 2 0 0 1 21 9.5V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>
+      </button>
+      <button class="navBtn" id="navHelp" title="Ayuda">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.3a2.7 2.7 0 1 1 3.9 2.4c-.9.5-1.2 1-1.2 2.1"/><circle cx="12" cy="17.2" r="0.6" fill="currentColor" stroke="none"/></svg>
+      </button>
     </div>
     <div class="avatar" title="Roger">R</div>
   </div>
@@ -431,7 +464,9 @@
   <!-- ============ Contenido principal ============ -->
   <div id="main">
     <div id="topRow">
-      <button id="settingsBtn" title="Ayuda y ajustes">⚙</button>
+      <button id="settingsBtn" title="Ayuda y ajustes">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="9" cy="7" r="1.6" fill="currentColor" stroke="none"/><circle cx="16" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="10" cy="17" r="1.6" fill="currentColor" stroke="none"/></svg>
+      </button>
     </div>
 
     <div id="header">
@@ -454,25 +489,25 @@
 
     <div id="cards">
       <button class="card blue" id="modeBtn" title="Cambia entre modo en línea y modo local">
-        <div class="cardIcon">🌐</div>
+        <div class="cardIcon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><line x1="3" y1="12" x2="21" y2="12"/></svg></div>
         <div class="cardTitle display-font">Cambiar modo</div>
         <div class="cardSub">Ajusta el estilo de conversación</div>
         <div class="cardArrow">›</div>
       </button>
       <button class="card purple" id="studyBtn" title="Crea una zona de estudio y elige tus apuntes">
-        <div class="cardIcon">📖</div>
+        <div class="cardIcon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 5.5C4 4.7 4.7 4 5.5 4H12v16H5.5C4.7 20 4 19.3 4 18.5V5.5Z"/><path d="M20 5.5C20 4.7 19.3 4 18.5 4H12v16h6.5c.8 0 1.5-.7 1.5-1.5V5.5Z"/></svg></div>
         <div class="cardTitle display-font">Estudiar</div>
         <div class="cardSub">Aprende y resuelve tus dudas</div>
         <div class="cardArrow">›</div>
       </button>
       <button class="card orange" id="uploadBtn" title="Agrega más archivos a la materia activa" disabled>
-        <div class="cardIcon">🗂</div>
+        <div class="cardIcon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8A2 2 0 0 1 21 9.5V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg></div>
         <div class="cardTitle display-font">Agregar archivos</div>
         <div class="cardSub">Sube documentos para analizar</div>
         <div class="cardArrow">›</div>
       </button>
       <button class="card pink" id="helpBtn" title="¿Qué le puedo decir a Rochy?">
-        <div class="cardIcon">❓</div>
+        <div class="cardIcon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.3a2.7 2.7 0 1 1 3.9 2.4c-.9.5-1.2 1-1.2 2.1"/><circle cx="12" cy="17.2" r="0.6" fill="currentColor" stroke="none"/></svg></div>
         <div class="cardTitle display-font">Ayuda</div>
         <div class="cardSub">Explora funciones y atajos</div>
         <div class="cardArrow">›</div>
@@ -509,14 +544,24 @@
 
     <div id="inputRow">
       <input id="textInput" type="text" placeholder="Escríbele a Rochy…" autocomplete="off">
-      <button class="roundBtn" id="micBtn" title="Rochy también te escucha por voz — di 'rochy' para activarla">🎙</button>
-      <button class="roundBtn" id="sendBtn" title="Enviar">➤</button>
+      <button class="roundBtn" id="micBtn" title="Rochy también te escucha por voz — di 'rochy' para activarla">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="9" y1="21" x2="15" y2="21"/></svg>
+      </button>
+      <button class="roundBtn" id="sendBtn" title="Enviar">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M21 3 3 10.5l7 2.5 2.5 7L21 3Z"/></svg>
+      </button>
     </div>
 
     <div id="controlRow">
       <div id="controlPill">
-        <button class="pillBtn" id="pauseBtn" title="Deja de escuchar activamente">⏸ Pausar</button>
-        <button class="pillBtn" id="powerBtn" title="Cierra la aplicación por completo">⏻ Apagar</button>
+        <button class="pillBtn" id="pauseBtn" title="Deja de escuchar activamente">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+          Pausar
+        </button>
+        <button class="pillBtn" id="powerBtn" title="Cierra la aplicación por completo">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="3" x2="12" y2="11"/><path d="M7 6.5a8 8 0 1 0 10 0"/></svg>
+          Apagar
+        </button>
       </div>
     </div>
 

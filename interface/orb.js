@@ -130,12 +130,22 @@
       // superponen varias manchas) — da el aspecto de luz real, no de pintura.
       col = 1.0 - exp(-col * 1.4);
 
-      // Máscara: opaco bien adentro del círculo, con un halo suave que se
-      // desvanece hacia afuera — fuera de un radio, alpha llega a 0 de
-      // verdad (canvas transparente), nunca un cuadrado de color de fondo.
-      float inner = smoothstep(radius, radius - 0.09, dist);
+      // El borde NO es un círculo perfecto: se deforma según el ángulo con
+      // dos capas de ruido (una más gruesa, una más fina) que además se
+      // mueven despacio con el tiempo — da un contorno orgánico, como una
+      // gota, en vez de un aro geométrico exacto.
+      float angle = atan(uv.y, uv.x);
+      vec2 edgeSample = vec2(cos(angle), sin(angle));
+      float edgeWobble = snoise(edgeSample * 1.1 + t * 0.1) * 0.022
+                        + snoise(edgeSample * 2.0 - t * 0.08 + 3.0) * 0.010;
+      float effRadius = radius + edgeWobble;
+
+      // Máscara: opaco bien adentro del contorno (ya deformado), con un halo
+      // suave que se desvanece hacia afuera — fuera de un radio, alpha llega
+      // a 0 de verdad (canvas transparente), nunca un cuadrado de fondo.
+      float inner = smoothstep(effRadius, effRadius - 0.09, dist);
       float haloStrength = clamp(length(col) * 0.5, 0.0, 1.0);
-      float halo = smoothstep(radius * 2.6, radius * 0.5, dist) * 0.5 * haloStrength;
+      float halo = smoothstep(effRadius * 2.6, effRadius * 0.5, dist) * 0.5 * haloStrength;
       float alpha = clamp(max(inner, halo), 0.0, 1.0);
 
       gl_FragColor = vec4(col, alpha);
@@ -163,6 +173,33 @@
 
   const RIPPLE_INTERVAL = { listening: 1000, speaking: 650 };
   const RIPPLE_LIFE_MS = 1200;
+
+  // Dibuja un contorno cerrado con curvas suaves y bultos irregulares —
+  // nunca un círculo perfecto. Se generan pocos puntos de control (9) con un
+  // radio que varía según el ángulo (dos ondas sinusoidales combinadas) y se
+  // conectan con curvas cuadráticas a través de los puntos medios, la
+  // técnica clásica para contornos de "gota" suaves y orgánicos.
+  function drawWobblyPath(ctx, cx, cy, baseRadius, phase, amount) {
+    const N = 9;
+    const pts = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      const wobble = 1 + amount * (Math.sin(a * 3 + phase) * 0.6 + Math.sin(a * 5 - phase * 1.4) * 0.4);
+      const r = baseRadius * wobble;
+      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+    }
+    ctx.beginPath();
+    const startMid = [(pts[0][0] + pts[N - 1][0]) / 2, (pts[0][1] + pts[N - 1][1]) / 2];
+    ctx.moveTo(startMid[0], startMid[1]);
+    for (let i = 0; i < N; i++) {
+      const curr = pts[i];
+      const next = pts[(i + 1) % N];
+      const midX = (curr[0] + next[0]) / 2;
+      const midY = (curr[1] + next[1]) / 2;
+      ctx.quadraticCurveTo(curr[0], curr[1], midX, midY);
+    }
+    ctx.closePath();
+  }
 
   function init(glCanvas, particleCanvas) {
     // alpha:true + premultipliedAlpha:false es la combinación que evita el
@@ -268,15 +305,17 @@
 
       const rippleGap = RIPPLE_INTERVAL[activeState];
       if (rippleGap && now - lastRippleAt > rippleGap) {
-        ripples.push(now);
+        // Cada onda tiene su propia "personalidad" de bultos (fase al azar),
+        // fija desde que nace — así se ve orgánica en vez de temblar cada
+        // cuadro. No es un círculo perfecto, tiene curvas irregulares.
+        ripples.push({ born: now, phase: Math.random() * Math.PI * 2 });
         lastRippleAt = now;
       }
-      ripples = ripples.filter((born) => now - born < RIPPLE_LIFE_MS);
-      for (const born of ripples) {
-        const t = (now - born) / RIPPLE_LIFE_MS;
+      ripples = ripples.filter((r) => now - r.born < RIPPLE_LIFE_MS);
+      for (const r of ripples) {
+        const t = (now - r.born) / RIPPLE_LIFE_MS;
         const rad = R + t * (R * 0.55);
-        pctx.beginPath();
-        pctx.arc(cx, cy, rad, 0, Math.PI * 2);
+        drawWobblyPath(pctx, cx, cy, rad, r.phase, 0.07);
         pctx.strokeStyle = `rgba(255,255,255,${(1 - t) * 0.28})`;
         pctx.lineWidth = 1.5;
         pctx.stroke();
