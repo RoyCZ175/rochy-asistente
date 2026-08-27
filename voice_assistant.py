@@ -687,23 +687,51 @@ def _voice_loop(
             # turno sin necesitar la palabra clave otra vez, hasta que haya
             # silencio o el usuario indique que terminó. El procesamiento con
             # IA se despacha a otro hilo (ver _handle_command), así que este
-            # bucle nunca deja de escuchar mientras Rochy "piensa" — pero SÍ
-            # se pausa mientras habla, para no escucharse a sí misma.
+            # bucle nunca deja de escuchar mientras Rochy "piensa".
+            #
+            # MIENTRAS HABLA, el micrófono también se queda activo (antes se
+            # pausaba del todo) — pero solo reacciona si lo que oye es una
+            # cancelación real (ver CANCEL_PHRASES): cualquier otra cosa se
+            # ignora en silencio sin mostrarse ni procesarse, así que aunque
+            # su propia voz se cuele por el micrófono (sin auriculares) nunca
+            # pasa nada raro — no coincide con esas frases exactas y se
+            # descarta. Esto es a propósito: antes, con el micrófono pausado
+            # del todo mientras hablaba, no había forma de interrumpirla a
+            # mitad de una respuesta larga, y eso se sentía como quedar
+            # "bloqueado" varios segundos sin poder decir nada.
             while not stop_event.is_set():
-                ui_server.broadcast_state("listening")
-                _wait_while_speaking(stop_event)
-                # Pitido corto: marca el momento exacto en que el micrófono
-                # empieza a escuchar de verdad (útil si no miras la pantalla).
-                # No se pone en la espera de la palabra clave (arriba) para no
-                # sonar cada pocos segundos mientras no hay conversación activa.
-                sound_cues.listening_started()
-                command_text = listener.listen(timeout=CONVERSATION_TIMEOUT, phrase_time_limit=15)
+                speaking_now = proc.speaking_event.is_set()
+                ui_server.broadcast_state("speaking" if speaking_now else "listening")
+                if not speaking_now:
+                    # Pitido corto: marca el momento exacto en que el micrófono
+                    # empieza a escuchar de verdad de un turno normal (no
+                    # mientras habla — ahí no, para no sonar de más).
+                    sound_cues.listening_started()
+                if speaking_now:
+                    # Ventanas cortas mientras habla — así una cancelación se
+                    # detecta rápido, en vez de esperar hasta 15s a que la
+                    # frase "termine" (que con su propia voz de fondo podría
+                    # tardar en darse por terminada).
+                    command_text = listener.listen(timeout=1.5, phrase_time_limit=3)
+                else:
+                    command_text = listener.listen(timeout=CONVERSATION_TIMEOUT, phrase_time_limit=15)
                 if not command_text:
-                    # Si algo sigue procesándose de fondo, el silencio no cuenta
-                    # como que la conversación terminó — seguimos escuchando.
-                    if proc.busy_event.is_set():
+                    # Si algo sigue procesándose o hablando, el silencio no
+                    # cuenta como que la conversación terminó — seguimos.
+                    if proc.busy_event.is_set() or proc.speaking_event.is_set():
                         continue
                     break
+
+                if proc.speaking_event.is_set():
+                    if _is_cancel(command_text):
+                        print(f"Tú: {command_text}")
+                        ui_server.broadcast_transcript("user", command_text)
+                        voice.stop_speaking()
+                        proc.cancel_event.set()
+                        ui_server.broadcast_transcript("assistant", "[interrumpido]")
+                    # lo que no sea cancelación se ignora del todo, ni se
+                    # registra — es justo lo que se oye mientras habla.
+                    continue
 
                 sound_cues.listening_stopped()
 

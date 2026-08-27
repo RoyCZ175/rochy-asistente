@@ -157,3 +157,13 @@ class VoiceOutput:
             os.remove(path)
         except OSError:
             pass  # Windows a veces retiene el archivo un instante tras reproducirlo
+
+    def stop_speaking(self) -> None:
+        """Corta el audio que esté sonando a mitad de reproducción — para
+        cuando el usuario dice una palabra de cancelar mientras Rochy sigue
+        hablando. El bucle en _play() que espera a que termine (get_busy())
+        ve esto y sale solo, como si el audio hubiera acabado normal."""
+        try:
+            pygame.mixer.music.stop()
+        except Exception:
+            pass
