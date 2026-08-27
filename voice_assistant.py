@@ -796,9 +796,9 @@ def run() -> None:
     window = webview.create_window(
         assistant_name,
         INTERFACE_PATH,
-        width=380,
-        height=680,
-        background_color="#05070d",
+        width=1080,
+        height=820,
+        background_color="#05060b",
         on_top=True,
         js_api=ui_bridge.StudyFilesApi(),
     )

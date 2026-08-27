@@ -5,229 +5,240 @@
 <title>Rochy</title>
 <style>
   :root {
-    /* Color del "resplandor" de fondo, actualizado en cada cuadro desde JS
-       para que siga exactamente el mismo color (ya suavizado) que el orbe —
-       nunca un color fijo, siempre el de verdad según el estado actual. */
-    --glow-r: 70;
-    --glow-g: 130;
-    --glow-b: 255;
+    --blue: #3aa0ff;
+    --purple: #9b6bff;
+    --pink: #ff5ca8;
+    --orange: #ffa53d;
+    --bg: #05060b;
+    --panel: #0c0f1a;
+    --border: #1c2340;
+    --text: #d9e4ff;
+    --text-dim: #8ea0c9;
   }
+  * { box-sizing: border-box; }
   html, body {
     margin: 0;
     padding: 0;
     width: 100%;
     height: 100%;
-    background: #05070d;
+    background: var(--bg);
     overflow: hidden;
-    font-family: 'Segoe UI', Consolas, monospace;
-    color: #cfe8ff;
-  }
-  /* Resplandor ambiental detrás de todo: sutil a propósito (opacidad baja,
-     muy difuminado) — da vida y contexto de color sin distraer de la
-     conversación ni cansar la vista. Solo cambia de color, no se mueve. */
-  #bgGlow {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    background: radial-gradient(
-      circle at 50% 24%,
-      rgb(var(--glow-r) var(--glow-g) var(--glow-b) / 0.16),
-      transparent 55%
-    );
-    transition: background 0.4s ease;
+    font-family: 'Segoe UI', Consolas, sans-serif;
+    color: var(--text);
   }
   #app {
-    position: relative;
-    z-index: 1;
     display: flex;
-    flex-direction: column;
     height: 100vh;
-    box-sizing: border-box;
   }
 
-  /* --- Orbe --- */
+  /* ================= Barra lateral ================= */
+  #sidebar {
+    flex: 0 0 76px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0;
+    border-right: 1px solid var(--border);
+    background: #07080f;
+  }
+  #sidebar .brand {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--blue), var(--purple));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    cursor: pointer;
+    box-shadow: 0 0 16px #6b6bff55;
+    margin-bottom: 22px;
+    border: none;
+  }
+  #sidebar .navIcons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+  }
+  .navBtn {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-dim);
+    font-size: 17px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .navBtn:hover { background: #10182a; color: var(--text); }
+  .navBtn.active { color: var(--blue); background: #10182a; }
+  .navBtn.active::after {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 18px;
+    border-radius: 3px;
+    background: var(--blue);
+  }
+  #sidebar .avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--purple), var(--pink));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  /* ================= Contenido principal ================= */
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 18px 28px 16px 28px;
+    overflow: hidden;
+  }
+
+  #topRow {
+    display: flex;
+    justify-content: flex-end;
+  }
+  #settingsBtn {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 14px;
+  }
+  #settingsBtn:hover { color: var(--text); border-color: var(--blue); }
+
+  #header { text-align: center; flex: 0 0 auto; }
+  #assistantName {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    margin: 0;
+    background: linear-gradient(90deg, var(--blue), var(--purple), var(--pink));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  #tagline {
+    margin: 2px 0 0 0;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+
   #orbWrap {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 10px 0 4px 0;
-    flex: 0 0 auto;
-  }
-  canvas#orb {
-    display: block;
-  }
-  #stateLabel {
-    margin-top: 2px;
-    font-size: 11px;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    opacity: 0.75;
-    color: #9fd8ff;
-  }
-  #assistantName {
-    font-size: 14px;
-    font-weight: 300;
-    letter-spacing: 4px;
-    color: #9fd8ff;
-    text-shadow: 0 0 8px currentColor;
-  }
-
-  /* --- Barra de estado: en qué modo está Rochy ahora mismo, para no tener
-     que preguntarle o adivinarlo --- */
-  #statusBar {
-    display: flex;
     justify-content: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    padding: 0 10px 8px 10px;
     flex: 0 0 auto;
+    margin: 4px 0 2px 0;
   }
-  .statusChip {
-    font-size: 10px;
-    letter-spacing: 0.3px;
-    padding: 3px 9px;
-    border-radius: 20px;
-    border: 1px solid #1c2a3f;
-    background: #0e1421;
-    color: #9fd8ff;
-    white-space: nowrap;
-  }
-  .statusChip.local { border-color: #ffb03c66; color: #ffcd7a; }
-  .statusChip.online { border-color: #4dff9166; color: #7affb0; }
-  .statusChip.study { border-color: #3d7dff66; color: #9fc4ff; cursor: default; }
+  canvas#orb { display: block; }
 
-  /* --- Transcript --- */
-  #log {
-    flex: 1 1 auto;
-    overflow-y: auto;
-    padding: 8px 14px;
+  #statusPill {
+    align-self: center;
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: 8px;
+    padding: 7px 16px;
+    border-radius: 30px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    margin: 0 auto 14px auto;
   }
-  #log::-webkit-scrollbar { width: 6px; }
-  #log::-webkit-scrollbar-thumb { background: #1c2a3f; border-radius: 3px; }
-
-  .bubble {
-    max-width: 85%;
-    padding: 7px 11px;
-    border-radius: 12px;
-    font-size: 12.5px;
-    line-height: 1.4;
-    word-wrap: break-word;
-  }
-  .bubble.user {
-    align-self: flex-end;
-    background: #14304d;
-    color: #d8ecff;
-    border-bottom-right-radius: 3px;
-  }
-  .bubble.assistant {
-    align-self: flex-start;
-    background: #10151f;
-    color: #bfe3ff;
-    border: 1px solid #1c2a3f;
-    border-bottom-left-radius: 3px;
-  }
-
-  /* --- Entrada de texto --- */
-  #inputRow {
-    flex: 0 0 auto;
-    display: flex;
-    gap: 6px;
-    padding: 10px;
-    border-top: 1px solid #10182633;
-    background: #060a12;
-  }
-  #textInput {
-    flex: 1;
-    background: #0e1421;
-    border: 1px solid #1c2a3f;
-    border-radius: 8px;
-    color: #dbeeff;
-    padding: 8px 10px;
-    font-size: 12.5px;
-    outline: none;
-  }
-  #textInput:focus {
-    border-color: #3d7dff;
-  }
-  #sendBtn {
-    background: #14304d;
-    border: 1px solid #2a4d78;
-    color: #9fd8ff;
-    border-radius: 8px;
-    padding: 0 14px;
-    font-size: 12.5px;
-    cursor: pointer;
-  }
-  #sendBtn:hover {
-    background: #1c3f66;
-  }
-
-  #connLabel {
-    text-align: center;
-    font-size: 9.5px;
-    letter-spacing: 1.5px;
-    opacity: 0.4;
-    padding: 3px 0 6px 0;
-  }
-
-  /* --- Botones de control --- */
-  #controlRow {
-    display: flex;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 0 8px 10px 8px;
+  #statusDot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4dff9a;
+    box-shadow: 0 0 6px #4dff9a;
     flex: 0 0 auto;
   }
-  .ctrlBtn {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    background: #0e1421;
-    border: 1px solid #1c2a3f;
-    color: #9fd8ff;
-    border-radius: 8px;
-    padding: 5px 10px;
-    font-size: 10.5px;
-    letter-spacing: 0.3px;
-    cursor: pointer;
-  }
-  .ctrlBtn:hover {
-    border-color: #3d7dff;
-    background: #10182a;
-  }
-  .ctrlBtn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-  }
-  #powerBtn:hover {
-    border-color: #ff4d6d;
-    color: #ff8fa3;
-  }
-  #helpBtn.active, #modeBtn.active {
-    border-color: #3d7dff;
-    background: #10182a;
-  }
+  #statusDot.local { background: #ffb03c; box-shadow: 0 0 6px #ffb03c; }
+  #statusText { font-size: 12.5px; font-weight: 600; }
+  #statusSub { font-size: 10.5px; color: var(--text-dim); }
 
-  /* --- Panel de ayuda: pensado para alguien que nunca ha usado Rochy y no
-     sabe qué frases decir. Empieza oculto, se abre con el botón "❓ Ayuda". --- */
+  /* ================= Tarjetas de función ================= */
+  #cards {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(120px, 1fr));
+    gap: 12px;
+    flex: 0 0 auto;
+    margin-bottom: 14px;
+  }
+  .card {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 14px 12px 14px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+    color: var(--text);
+    font-family: inherit;
+  }
+  .card:hover { transform: translateY(-2px); }
+  .card:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .card .cardIcon {
+    width: 34px; height: 34px;
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    margin-bottom: 9px;
+  }
+  .card .cardTitle { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+  .card .cardSub { font-size: 10.5px; color: var(--text-dim); line-height: 1.3; }
+  .card .cardArrow {
+    position: absolute;
+    right: 12px; bottom: 10px;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    background: #ffffff10;
+    color: var(--text-dim);
+  }
+  .card.blue   { }
+  .card.blue:hover   { border-color: var(--blue); box-shadow: 0 0 14px #3aa0ff33; }
+  .card.blue .cardIcon   { background: #3aa0ff22; color: var(--blue); }
+  .card.purple:hover { border-color: var(--purple); box-shadow: 0 0 14px #9b6bff33; }
+  .card.purple .cardIcon { background: #9b6bff22; color: var(--purple); }
+  .card.orange:hover { border-color: var(--orange); box-shadow: 0 0 14px #ffa53d33; }
+  .card.orange .cardIcon { background: #ffa53d22; color: var(--orange); }
+  .card.pink:hover   { border-color: var(--pink); box-shadow: 0 0 14px #ff5ca833; }
+  .card.pink .cardIcon   { background: #ff5ca822; color: var(--pink); }
+
+  /* ================= Panel de ayuda ================= */
   #helpPanel {
     display: none;
     flex-direction: column;
     gap: 10px;
-    margin: 0 10px 10px 10px;
-    padding: 12px 14px;
-    background: #0b101c;
-    border: 1px solid #1c2a3f;
-    border-radius: 10px;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
     font-size: 11.5px;
     line-height: 1.5;
-    max-height: 46vh;
+    margin-bottom: 12px;
     overflow-y: auto;
+    flex: 0 1 auto;
+    max-height: 32vh;
   }
   #helpPanel.open { display: flex; }
   #helpPanel h4 {
@@ -235,209 +246,377 @@
     font-size: 11px;
     letter-spacing: 1px;
     text-transform: uppercase;
-    color: #9fd8ff;
-    opacity: 0.85;
-  }
-  #helpPanel p {
-    margin: 0 0 8px 0;
+    color: var(--blue);
     opacity: 0.9;
   }
+  #helpPanel p { margin: 0 0 8px 0; opacity: 0.9; }
   #helpPanel code {
     display: inline-block;
-    background: #14304d;
-    color: #d8ecff;
+    background: #17203a;
+    color: #cfe0ff;
     border-radius: 5px;
     padding: 1px 6px;
     margin: 1px 0;
     font-size: 11px;
   }
   #helpPanel .helpSection:last-child p:last-child { margin-bottom: 0; }
+
+  /* ================= Transcript ================= */
+  #log {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 4px 2px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+  }
+  #log::-webkit-scrollbar { width: 6px; }
+  #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .bubble {
+    max-width: 78%;
+    padding: 8px 12px;
+    border-radius: 14px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    word-wrap: break-word;
+  }
+  .bubble.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, #1c3a66, #23305e);
+    color: #e4edff;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.assistant {
+    align-self: flex-start;
+    background: var(--panel);
+    color: #cfe0ff;
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+
+  /* ================= Entrada de texto ================= */
+  #inputRow {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 26px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    margin-top: 10px;
+  }
+  #textInput {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    padding: 4px 2px;
+    font-size: 13px;
+    outline: none;
+  }
+  #textInput::placeholder { color: var(--text-dim); }
+  .roundBtn {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: #10182a;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    flex: 0 0 auto;
+  }
+  .roundBtn:hover { color: var(--text); border-color: var(--blue); }
+  #sendBtn {
+    background: linear-gradient(135deg, var(--blue), var(--purple));
+    border: none;
+    color: #fff;
+  }
+
+  /* ================= Barra inferior ================= */
+  #controlRow {
+    display: flex;
+    justify-content: center;
+    flex: 0 0 auto;
+    margin-top: 12px;
+  }
+  #controlPill {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    border-radius: 30px;
+    overflow: hidden;
+  }
+  .pillBtn {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    padding: 9px 20px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #pauseBtn { color: var(--blue); }
+  #pauseBtn:hover { background: #3aa0ff18; }
+  #powerBtn { color: var(--pink); border-left: 1px solid var(--border); }
+  #powerBtn:hover { background: #ff5ca818; }
+
+  #footer {
+    text-align: center;
+    font-size: 10px;
+    letter-spacing: 3px;
+    padding-top: 8px;
+    flex: 0 0 auto;
+    background: linear-gradient(90deg, var(--blue), var(--purple), var(--pink));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    opacity: 0.7;
+  }
+  #connLabel {
+    text-align: center;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    opacity: 0.35;
+    padding-top: 2px;
+    flex: 0 0 auto;
+  }
 </style>
 </head>
 <body>
-<div id="bgGlow"></div>
 <div id="app">
-  <div id="orbWrap">
-    <div id="assistantName">ROCHY</div>
-    <canvas id="orb" width="160" height="160"></canvas>
-    <div id="stateLabel">EN ESPERA</div>
+
+  <!-- ============ Barra lateral ============ -->
+  <div id="sidebar">
+    <button class="brand" id="brandBtn" title="Reinicia la conversación">✦</button>
+    <div class="navIcons">
+      <button class="navBtn active" id="navChat" title="Ir al chat">💬</button>
+      <button class="navBtn" id="navStudy" title="Modo estudio">🎓</button>
+      <button class="navBtn" id="navFiles" title="Agregar archivos">📁</button>
+      <button class="navBtn" id="navHelp" title="Ayuda">❓</button>
+    </div>
+    <div class="avatar" title="Roger">R</div>
   </div>
 
-  <!-- Chips de estado: qué modo de IA está activo y si hay una materia de
-       estudio activa. Se actualizan solos cuando algo cambia (ver mensajes
-       "mode_update" del WebSocket) — nunca hay que preguntarle a Rochy en
-       qué modo está. -->
-  <div id="statusBar">
-    <span class="statusChip online" id="aiModeChip">🌐 En línea</span>
-  </div>
+  <!-- ============ Contenido principal ============ -->
+  <div id="main">
+    <div id="topRow">
+      <button id="settingsBtn" title="Ayuda y ajustes">⚙</button>
+    </div>
 
-  <div id="controlRow">
-    <button class="ctrlBtn" id="modeBtn" title="Cambia entre modo en línea (más completo) y modo local (ahorra datos, sin internet)">🌐 Cambiar modo</button>
-    <button class="ctrlBtn" id="studyBtn" title="Crea una zona de estudio nueva y elige tus apuntes">📚 Estudiar</button>
-    <button class="ctrlBtn" id="uploadBtn" title="Agrega más archivos a la materia que tengas activa" disabled>📎 Agregar archivos</button>
-    <button class="ctrlBtn" id="helpBtn" title="¿Qué le puedo decir a Rochy?">❓ Ayuda</button>
-  </div>
+    <div id="header">
+      <h1 id="assistantName">ROCHY</h1>
+      <p id="tagline">Tu asistente inteligente</p>
+    </div>
 
-  <!-- Ayuda en español sencillo, sin tecnicismos: pensada para que alguien
-       que jamás ha usado Rochy sepa exactamente qué escribir o decir. -->
-  <div id="helpPanel">
-    <div class="helpSection">
-      <h4>Hablar con Rochy</h4>
-      <p>Dile "rochy" en voz alta y espera a que responda "Dime", o simplemente escribe tu mensaje abajo y presiona Enter. No hace falta decir nada especial para charlar o pedir tareas normales (abrir programas, buscar algo, la hora, el volumen, etc.).</p>
+    <div id="orbWrap">
+      <canvas id="orb" width="260" height="260"></canvas>
     </div>
-    <div class="helpSection">
-      <h4>Modo local vs. modo en línea</h4>
-      <p><b>En línea</b> usa internet y da las respuestas más completas. <b>Local</b> usa la IA de tu propia PC — no gasta datos ni depende de internet, pero es un poco más simple.</p>
-      <p>Di <code>modo local</code> para ahorrar, o <code>modo online</code> para volver al modo completo. También puedes usar el botón "🌐 Cambiar modo".</p>
-    </div>
-    <div class="helpSection">
-      <h4>Modo estudio</h4>
-      <p>Sirve para que Rochy responda preguntas usando tus propios apuntes (PDF, Word o texto), no solo lo que ya sabe de memoria.</p>
-      <p>Di <code>créame zona de estudio para [materia]</code> (ej. "créame zona de estudio para redes neuronales") — se abrirá una ventana para que elijas tus archivos desde tu PC. También puedes usar el botón "📚 Estudiar".</p>
-      <p>Cuando termines, di <code>sal del modo estudio</code>. Si quieres que olvide lo aprendido de una materia (sin borrar tus archivos), di <code>olvida el estudio de [materia]</code>.</p>
-      <p>Para agregar más archivos después, usa el botón "📎 Agregar archivos" mientras esa materia esté activa.</p>
-    </div>
-    <div class="helpSection">
-      <h4>Si Rochy se equivoca o tarda</h4>
-      <p>Di <code>olvídalo</code> o <code>cancela</code> en cualquier momento para que deje de hacer lo que estaba haciendo, sin tener que esperar a que termine.</p>
-    </div>
-    <div class="helpSection">
-      <h4>Pausar o cerrar</h4>
-      <p>El botón "⏸ Pausar" hace que deje de escuchar activamente (la ventana sigue abierta). El botón "⏻ Apagar" cierra la aplicación por completo. También puedes decir "descansa" o "apágate".</p>
-    </div>
-  </div>
 
-  <div id="log"></div>
+    <div id="statusPill">
+      <span id="statusDot"></span>
+      <div>
+        <div id="statusText">En línea</div>
+        <div id="statusSub">Siempre listo para ayudarte</div>
+      </div>
+    </div>
 
-  <div id="inputRow">
-    <input id="textInput" type="text" placeholder="Escríbele si la voz falla…" autocomplete="off">
-    <button id="sendBtn">Enviar</button>
+    <div id="cards">
+      <button class="card blue" id="modeBtn" title="Cambia entre modo en línea y modo local">
+        <div class="cardIcon">🌐</div>
+        <div class="cardTitle">Cambiar modo</div>
+        <div class="cardSub">Ajusta el estilo de conversación</div>
+        <div class="cardArrow">›</div>
+      </button>
+      <button class="card purple" id="studyBtn" title="Crea una zona de estudio y elige tus apuntes">
+        <div class="cardIcon">📖</div>
+        <div class="cardTitle">Estudiar</div>
+        <div class="cardSub">Aprende y resuelve tus dudas</div>
+        <div class="cardArrow">›</div>
+      </button>
+      <button class="card orange" id="uploadBtn" title="Agrega más archivos a la materia activa" disabled>
+        <div class="cardIcon">🗂</div>
+        <div class="cardTitle">Agregar archivos</div>
+        <div class="cardSub">Sube documentos para analizar</div>
+        <div class="cardArrow">›</div>
+      </button>
+      <button class="card pink" id="helpBtn" title="¿Qué le puedo decir a Rochy?">
+        <div class="cardIcon">❓</div>
+        <div class="cardTitle">Ayuda</div>
+        <div class="cardSub">Explora funciones y atajos</div>
+        <div class="cardArrow">›</div>
+      </button>
+    </div>
+
+    <!-- Ayuda en español sencillo, sin tecnicismos. -->
+    <div id="helpPanel">
+      <div class="helpSection">
+        <h4>Hablar con Rochy</h4>
+        <p>Dile "rochy" en voz alta y espera a que responda "Dime", o escribe tu mensaje abajo y presiona Enter. No hace falta decir nada especial para charlar o pedir tareas normales.</p>
+      </div>
+      <div class="helpSection">
+        <h4>Modo local vs. modo en línea</h4>
+        <p><b>En línea</b> usa internet y da las respuestas más completas. <b>Local</b> usa la IA de tu propia PC, no gasta datos.</p>
+        <p>Di <code>modo local</code> o <code>modo online</code>, o usa la tarjeta "Cambiar modo".</p>
+      </div>
+      <div class="helpSection">
+        <h4>Modo estudio</h4>
+        <p>Rochy responde usando tus propios apuntes (PDF, Word o texto). Di <code>créame zona de estudio para [materia]</code> y elige tus archivos, o usa la tarjeta "Estudiar".</p>
+        <p>Di <code>sal del modo estudio</code> para salir, o <code>olvida el estudio de [materia]</code> para que olvide lo aprendido (sin borrar tus archivos).</p>
+      </div>
+      <div class="helpSection">
+        <h4>Si Rochy se equivoca o tarda</h4>
+        <p>Di <code>olvídalo</code> o <code>cancela</code> en cualquier momento.</p>
+      </div>
+      <div class="helpSection">
+        <h4>Pausar o cerrar</h4>
+        <p>"Pausar" deja de escuchar activamente. "Apagar" cierra la aplicación. También puedes decir "descansa" o "apágate".</p>
+      </div>
+    </div>
+
+    <div id="log"></div>
+
+    <div id="inputRow">
+      <input id="textInput" type="text" placeholder="Escríbele a Rochy…" autocomplete="off">
+      <button class="roundBtn" id="micBtn" title="Rochy también te escucha por voz — di 'rochy' para activarla">🎙</button>
+      <button class="roundBtn" id="sendBtn" title="Enviar">➤</button>
+    </div>
+
+    <div id="controlRow">
+      <div id="controlPill">
+        <button class="pillBtn" id="pauseBtn" title="Deja de escuchar activamente">⏸ Pausar</button>
+        <button class="pillBtn" id="powerBtn" title="Cierra la aplicación por completo">⏻ Apagar</button>
+      </div>
+    </div>
+
+    <div id="footer">ROCHY · AI</div>
+    <div id="connLabel">conectando…</div>
   </div>
-  <div id="controlRow">
-    <button class="ctrlBtn" id="pauseBtn" title="Deja de escuchar activamente, la app se queda abierta">⏸ Pausar</button>
-    <button class="ctrlBtn" id="powerBtn" title="Cierra la aplicación por completo">⏻ Apagar</button>
-  </div>
-  <div id="connLabel">conectando…</div>
 </div>
 
 <script>
+// ============================================================
+// Orbe: anillo con degradado de marca (azul→morado→rosa→naranja)
+// y ondas fluyendo dentro, con partículas alrededor. El color es
+// siempre el mismo (es la identidad visual de Rochy); lo que cambia
+// según el estado es el MOVIMIENTO — más calmado en espera, más vivo
+// escuchando/hablando, y un giro más notorio mientras procesa.
+// ============================================================
 const canvas = document.getElementById('orb');
 const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 const cx = W / 2, cy = H / 2;
+const RING_R = 92;
 
 const STATES = {
-  idle:      { color: [70, 130, 255],  pulse: 0.6,  amplitude: 0.18, label: 'EN ESPERA' },
-  listening: { color: [60, 220, 150],  pulse: 1.1,  amplitude: 0.4,  label: 'ESCUCHANDO' },
-  thinking:  { color: [255, 180, 60],  pulse: 2.2,  amplitude: 0.5,  label: 'PROCESANDO' },
-  speaking:  { color: [255, 90, 150],  pulse: 1.4,  amplitude: 0.6,  label: 'HABLANDO' },
+  idle:      { waveAmp: 6,  waveSpeed: 0.6, spin: 0.05, label: 'En línea',    sub: 'Siempre listo para ayudarte' },
+  listening: { waveAmp: 11, waveSpeed: 1.1, spin: 0.12, label: 'Escuchando',  sub: 'Di tu mensaje cuando quieras' },
+  thinking:  { waveAmp: 9,  waveSpeed: 1.6, spin: 0.55, label: 'Procesando',  sub: 'Dame un momento…' },
+  speaking:  { waveAmp: 14, waveSpeed: 2.0, spin: 0.18, label: 'Hablando',    sub: 'Escuchando la respuesta' },
 };
 
-let current = { ...STATES.idle };
-let target = { ...STATES.idle };
-// El nombre del estado LÓGICO actual (no el color/pulso ya suavizado) — de
-// aquí decide qué animación extra dibujar (ondas, anillo girando, etc.).
+let current = { waveAmp: STATES.idle.waveAmp, waveSpeed: STATES.idle.waveSpeed, spin: STATES.idle.spin };
+let target = { ...current };
 let activeStateName = 'idle';
-
-function setState(name) {
-  if (!STATES[name]) return;
-  target = { ...STATES[name] };
-  activeStateName = name;
-  document.getElementById('stateLabel').textContent = STATES[name].label;
-}
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
-// pequeñas partículas orbitando el núcleo
-const PARTICLES = Array.from({ length: 14 }, (_, i) => ({
-  angle: (i / 14) * Math.PI * 2,
-  radius: 36 + Math.random() * 11,
-  speed: 0.2 + Math.random() * 0.3,
-  size: 1 + Math.random() * 1.5,
+function setState(name) {
+  if (!STATES[name]) return;
+  target = { waveAmp: STATES[name].waveAmp, waveSpeed: STATES[name].waveSpeed, spin: STATES[name].spin };
+  activeStateName = name;
+  if (!studySubjectActive) {
+    document.getElementById('statusText').textContent = STATES[name].label;
+    document.getElementById('statusSub').textContent = STATES[name].sub;
+  }
+  document.getElementById('statusDot').classList.toggle('local', currentAiMode === 'local' && name === 'idle');
+}
+
+// partículas suaves alrededor del anillo
+const PARTICLES = Array.from({ length: 22 }, (_, i) => ({
+  angle: (i / 22) * Math.PI * 2,
+  radius: RING_R + 14 + Math.random() * 26,
+  speed: 0.15 + Math.random() * 0.25,
+  size: 1 + Math.random() * 1.8,
+  hue: ['#3aa0ff', '#9b6bff', '#ff5ca8', '#ffa53d'][i % 4],
 }));
 
-// Ondas que salen del núcleo mientras escucha o habla (como un radar/sonar) —
-// se disparan solo en esos dos estados, a distinto ritmo cada uno, y se
-// desvanecen solas. En "procesando" en vez de ondas se dibuja un anillo
-// girando (ver más abajo), y en "en espera" no hay nada extra: solo la
-// respiración suave del núcleo, para que no canse a la vista estando quieto.
-let ripples = [];
-let lastRippleAt = 0;
-const RIPPLE_INTERVAL = { listening: 1000, speaking: 650 };
-const RIPPLE_LIFE_MS = 1200;
+let ringRotation = 0;
 
 function step(now) {
-  for (const k of ['pulse', 'amplitude']) {
-    current[k] = lerp(current[k], target[k], 0.05);
+  for (const k of ['waveAmp', 'waveSpeed', 'spin']) {
+    current[k] = lerp(current[k], target[k], 0.04);
   }
-  current.color = current.color.map((c, i) => lerp(c, target.color[i], 0.05));
+  ringRotation += 0.0009 + current.spin * 0.002;
 
   ctx.clearRect(0, 0, W, H);
-  const [r, g, b] = current.color;
 
-  // El fondo respira con el mismo color exacto del orbe, ya suavizado —
-  // nunca un salto brusco de color, siempre seguido de la misma transición.
-  document.documentElement.style.setProperty('--glow-r', Math.round(r));
-  document.documentElement.style.setProperty('--glow-g', Math.round(g));
-  document.documentElement.style.setProperty('--glow-b', Math.round(b));
-
-  const coreR = 20 + Math.sin(now / 450 * current.pulse) * 7 * current.amplitude;
-
-  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2.6);
-  grad.addColorStop(0, `rgba(${r},${g},${b},0.65)`);
-  grad.addColorStop(1, 'rgba(5,7,13,0)');
-  ctx.fillStyle = grad;
+  // resplandor suave detrás del anillo
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, RING_R * 1.9);
+  glow.addColorStop(0, 'rgba(120,100,255,0.20)');
+  glow.addColorStop(1, 'rgba(5,6,11,0)');
+  ctx.fillStyle = glow;
   ctx.beginPath();
-  ctx.arc(cx, cy, coreR * 2.6, 0, Math.PI * 2);
+  ctx.arc(cx, cy, RING_R * 1.9, 0, Math.PI * 2);
   ctx.fill();
 
-  // Ondas (solo escuchando/hablando)
-  const rippleGap = RIPPLE_INTERVAL[activeStateName];
-  if (rippleGap && now - lastRippleAt > rippleGap) {
-    ripples.push(now);
-    lastRippleAt = now;
-  }
-  ripples = ripples.filter((born) => now - born < RIPPLE_LIFE_MS);
-  for (const born of ripples) {
-    const t = (now - born) / RIPPLE_LIFE_MS;
-    const radius = coreR + t * 46;
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(${r},${g},${b},${(1 - t) * 0.45})`;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-  }
-
-  // Anillo girando (solo procesando) — distingue claramente "pensando" de
-  // solo estar pulsando, sin necesitar texto adicional.
-  if (activeStateName === 'thinking') {
-    const ringR = coreR + 14;
-    const rotation = (now / 900) % (Math.PI * 2);
-    ctx.beginPath();
-    ctx.arc(cx, cy, ringR, rotation, rotation + Math.PI * 1.1);
-    ctx.strokeStyle = `rgba(${r},${g},${b},0.8)`;
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.stroke();
-  }
-
+  // ondas fluyendo dentro del círculo (recortadas al círculo)
+  ctx.save();
   ctx.beginPath();
-  ctx.arc(cx, cy, coreR, 0, Math.PI * 2);
-  ctx.fillStyle = `rgb(${r},${g},${b})`;
-  ctx.shadowBlur = 16;
-  ctx.shadowColor = `rgb(${r},${g},${b})`;
-  ctx.fill();
+  ctx.arc(cx, cy, RING_R - 3, 0, Math.PI * 2);
+  ctx.clip();
+  const waveColors = ['rgba(58,160,255,0.55)', 'rgba(155,107,255,0.5)', 'rgba(255,92,168,0.45)'];
+  waveColors.forEach((color, i) => {
+    ctx.beginPath();
+    const phase = now / (900 / current.waveSpeed) + i * 2.1;
+    for (let x = cx - RING_R; x <= cx + RING_R; x += 4) {
+      const y = cy + Math.sin((x / 26) + phase + i) * current.waveAmp * (1 - Math.abs(x - cx) / (RING_R * 1.3));
+      if (x === cx - RING_R) ctx.moveTo(x, y + i * 10 - 10);
+      else ctx.lineTo(x, y + i * 10 - 10);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+  });
+  ctx.restore();
+
+  // anillo con degradado de marca
+  const ringGrad = ctx.createConicGradient ? ctx.createConicGradient(ringRotation, cx, cy) : null;
+  if (ringGrad) {
+    ringGrad.addColorStop(0, '#3aa0ff');
+    ringGrad.addColorStop(0.33, '#9b6bff');
+    ringGrad.addColorStop(0.66, '#ff5ca8');
+    ringGrad.addColorStop(1, '#ffa53d');
+    ctx.strokeStyle = ringGrad;
+  } else {
+    ctx.strokeStyle = '#9b6bff'; // respaldo si el navegador no soporta conic gradient
+  }
+  ctx.lineWidth = 3.5;
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = '#9b6bffaa';
+  ctx.beginPath();
+  ctx.arc(cx, cy, RING_R, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.shadowBlur = 0;
 
+  // partículas orbitando alrededor del anillo
   for (const p of PARTICLES) {
-    p.angle += 0.006 * p.speed * current.pulse;
-    const rad = p.radius + Math.sin(now / 500 + p.angle) * 4 * current.amplitude;
+    p.angle += 0.004 * p.speed * (1 + current.spin);
+    const rad = p.radius + Math.sin(now / 600 + p.angle) * 3;
     const x = cx + Math.cos(p.angle) * rad;
     const y = cy + Math.sin(p.angle) * rad;
     ctx.beginPath();
     ctx.arc(x, y, p.size, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(${r},${g},${b},0.7)`;
+    ctx.fillStyle = p.hue;
+    ctx.globalAlpha = 0.55;
     ctx.fill();
+    ctx.globalAlpha = 1;
   }
 
   requestAnimationFrame(step);
@@ -454,38 +633,24 @@ function addBubble(role, text) {
   log.scrollTop = log.scrollHeight;
 }
 
-// --- Estado actual conocido por la interfaz (llega por WebSocket cada vez
-// que algo cambia — ver _broadcast_mode en voice_assistant.py) ---
+// --- Estado actual conocido por la interfaz ---
 let currentAiMode = 'online';
 let currentStudySubject = null;
+let studySubjectActive = false;
 
 function updateStatusBar() {
-  const bar = document.getElementById('statusBar');
-  const modeChip = document.getElementById('aiModeChip');
+  studySubjectActive = !!currentStudySubject;
+  const dot = document.getElementById('statusDot');
+  dot.classList.toggle('local', currentAiMode === 'local');
 
-  if (currentAiMode === 'local') {
-    modeChip.textContent = '💻 Modo local (ahorro)';
-    modeChip.className = 'statusChip local';
+  if (studySubjectActive) {
+    document.getElementById('statusText').textContent = 'Estudiando: ' + currentStudySubject;
+    document.getElementById('statusSub').textContent = currentAiMode === 'local' ? 'Modo local (ahorro)' : 'Modo en línea';
   } else {
-    modeChip.textContent = '🌐 En línea';
-    modeChip.className = 'statusChip online';
+    document.getElementById('statusText').textContent = currentAiMode === 'local' ? 'Modo local' : 'En línea';
+    document.getElementById('statusSub').textContent = currentAiMode === 'local' ? 'Ahorrando datos, sin internet' : 'Siempre listo para ayudarte';
   }
 
-  // el chip de materia se agrega/quita dinámicamente según haya o no una activa
-  let subjectChip = document.getElementById('studySubjectChip');
-  if (currentStudySubject) {
-    if (!subjectChip) {
-      subjectChip = document.createElement('span');
-      subjectChip.id = 'studySubjectChip';
-      subjectChip.className = 'statusChip study';
-      bar.appendChild(subjectChip);
-    }
-    subjectChip.textContent = '📚 Estudiando: ' + currentStudySubject;
-  } else if (subjectChip) {
-    subjectChip.remove();
-  }
-
-  // "Agregar archivos" solo tiene sentido si hay una materia activa ahora mismo
   document.getElementById('uploadBtn').disabled = !currentStudySubject;
 }
 updateStatusBar();
@@ -516,8 +681,6 @@ function connect() {
       currentStudySubject = data.study_subject || null;
       updateStatusBar();
     } else if (data.type === 'open_file_picker' && data.subject) {
-      // Rochy ya creó la carpeta de la materia; nos pide que abramos el
-      // selector nativo de Windows para elegir qué archivos copiar ahí.
       openFilePicker(data.subject);
     }
   };
@@ -525,19 +688,12 @@ function connect() {
 connect();
 
 // --- Selector nativo de archivos (modo estudio) ---
-// Pasa SIEMPRE por window.pywebview.api, nunca directo desde Python en un
-// hilo aparte — así pywebview maneja bien el diálogo nativo de Windows.
 function openFilePicker(subject) {
   if (!window.pywebview || !window.pywebview.api) {
-    // La interfaz todavía no terminó de conectar con Python (pasa a veces
-    // justo al abrir la app) — reintenta en un momento.
     setTimeout(() => openFilePicker(subject), 300);
     return;
   }
-  window.pywebview.api.pick_and_copy(subject).then((result) => {
-    // La respuesta (cuántos archivos se copiaron, etc.) ya la anuncia Rochy
-    // por su cuenta (voz + burbuja de chat) — aquí no hace falta hacer nada más.
-  });
+  window.pywebview.api.pick_and_copy(subject).then(() => {});
 }
 
 // --- Entrada de texto ---
@@ -555,9 +711,8 @@ sendBtn.addEventListener('click', sendText);
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendText();
 });
+document.getElementById('micBtn').addEventListener('click', () => input.focus());
 
-// --- Botones de control: mandan el mismo texto que reconocería si lo
-// escribieras o dijeras, así siguen exactamente la misma lógica de siempre ---
 function sendControl(text) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: 'text_command', text }));
@@ -565,17 +720,12 @@ function sendControl(text) {
 
 document.getElementById('pauseBtn').addEventListener('click', () => sendControl('descansa'));
 document.getElementById('powerBtn').addEventListener('click', () => sendControl('apágate'));
+document.getElementById('brandBtn').addEventListener('click', () => sendControl('reinicia la conversación'));
 
-// Cambia de modo según lo que la interfaz sabe que está activo ahora mismo
-// (así el botón siempre alterna al contrario del modo actual, sin importar
-// si el cambio anterior vino de voz, texto o de este mismo botón).
 document.getElementById('modeBtn').addEventListener('click', () => {
   sendControl(currentAiMode === 'local' ? 'modo online' : 'modo local');
 });
 
-// Pide el nombre de la materia y dispara el comando de "crear zona de
-// estudio" — el resto (crear carpeta, abrir el selector de archivos,
-// copiar, indexar) lo hace Rochy solo, como si lo hubieras escrito/dicho tú.
 document.getElementById('studyBtn').addEventListener('click', () => {
   const subject = window.prompt('¿Sobre qué materia o tema quieres estudiar?');
   if (subject && subject.trim()) {
@@ -583,21 +733,42 @@ document.getElementById('studyBtn').addEventListener('click', () => {
   }
 });
 
-// Agrega más archivos a la materia que ya esté activa (el botón está
-// deshabilitado si no hay ninguna — ver updateStatusBar).
 document.getElementById('uploadBtn').addEventListener('click', () => {
-  if (currentStudySubject) {
-    openFilePicker(currentStudySubject);
-  }
+  if (currentStudySubject) openFilePicker(currentStudySubject);
 });
 
-// Panel de ayuda: solo se abre/cierra, no manda nada por WebSocket.
-document.getElementById('helpBtn').addEventListener('click', () => {
+function toggleHelp() {
   const panel = document.getElementById('helpPanel');
-  const btn = document.getElementById('helpBtn');
+  const wasOpen = panel.classList.contains('open');
   panel.classList.toggle('open');
-  btn.classList.toggle('active');
+  document.getElementById('helpBtn').classList.toggle('active', !wasOpen);
+  document.getElementById('navHelp').classList.toggle('active', !wasOpen);
+}
+document.getElementById('helpBtn').addEventListener('click', toggleHelp);
+document.getElementById('settingsBtn').addEventListener('click', toggleHelp);
+
+// --- Barra lateral: accesos rápidos a las mismas acciones que las tarjetas ---
+document.getElementById('navChat').addEventListener('click', () => {
+  setActiveNav('navChat');
+  input.focus();
 });
+document.getElementById('navStudy').addEventListener('click', () => {
+  setActiveNav('navStudy');
+  document.getElementById('studyBtn').click();
+});
+document.getElementById('navFiles').addEventListener('click', () => {
+  setActiveNav('navFiles');
+  document.getElementById('uploadBtn').click();
+});
+document.getElementById('navHelp').addEventListener('click', () => {
+  setActiveNav('navHelp');
+  toggleHelp();
+});
+function setActiveNav(id) {
+  for (const btn of document.querySelectorAll('.navBtn')) {
+    btn.classList.toggle('active', btn.id === id);
+  }
+}
 </script>
 </body>
 </html>
