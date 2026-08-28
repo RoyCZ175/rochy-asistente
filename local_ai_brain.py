@@ -76,6 +76,26 @@ herramienta de verdad y esta tuvo éxito — si la herramienta falló, dilo, no 
 funcionó.{memory_context}"""
 
 
+def simple_complete(model: str, system_prompt: str, instruction: str) -> str:
+    """Una sola llamada sin herramientas ni historial — para generación de
+    contenido de una sola vez (ver code_generator.py: documentos/páginas/
+    scripts), no una conversación con turnos."""
+    resp = requests.post(
+        f"{OLLAMA_BASE}/api/chat",
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": instruction},
+            ],
+            "stream": False,
+        },
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json().get("message", {}).get("content", "")
+
+
 def is_available(model: str) -> bool:
     """Comprueba si Ollama está corriendo y el modelo pedido está descargado."""
     try:
@@ -122,6 +142,7 @@ class LocalAIBrain:
         self.history.append({"role": "assistant", "content": message.get("content"), "tool_calls": tool_calls})
 
         verbatim_result = None
+        last_tool_results: list = []
         for call in tool_calls:
             name = call["function"]["name"]
             raw_args = call["function"].get("arguments", {})
@@ -151,6 +172,7 @@ class LocalAIBrain:
             if name in VERBATIM_TOOLS:
                 verbatim_result = str(result)
 
+            last_tool_results.append(str(result))
             self.history.append({"role": "tool", "name": name, "content": str(result)})
 
         if verbatim_result is not None:
@@ -160,7 +182,13 @@ class LocalAIBrain:
         if cancel_event is not None and cancel_event.is_set():
             return None
 
-        followup = self._chat(tools=None)
+        try:
+            followup = self._chat(tools=None)
+        except Exception:
+            # La herramienta ya se ejecutó de verdad — si esta llamada de
+            # "resumen final" falla (ej. Ollama se cae justo ahora), es mejor
+            # devolver el resultado real que perderlo por completo.
+            return " ".join(last_tool_results)
         final_text = followup.get("content") or ""
         self.history.append({"role": "assistant", "content": final_text})
         return final_text

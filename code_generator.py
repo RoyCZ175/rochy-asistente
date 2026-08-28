@@ -11,6 +11,58 @@ from groq import Groq
 
 import creation_log
 
+
+def _cascade_complete(config, system_prompt: str, instruction: str, temperature: float, max_tokens: int) -> str:
+    """Genera texto probando Groq -> Gemini -> IA local, en ese orden — el
+    mismo respaldo que ya usa la conversación normal (ver
+    voice_assistant._generate_response). Antes create_document/
+    create_webpage/create_script dependían SOLO de Groq: si se quedaba sin
+    cupo diario, fallaban por completo aunque hubiera otros respaldos
+    configurados y disponibles."""
+    try:
+        client = Groq(api_key=config.groq_api_key, max_retries=0)
+        response = client.chat.completions.create(
+            model=config.groq_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": instruction},
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            reasoning_effort="medium",
+        )
+        return response.choices[0].message.content or ""
+    except Exception as exc:
+        print(f"[aviso] Groq falló generando contenido ({exc}), pruebo el siguiente respaldo.")
+
+    if config.gemini_api_key:
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(
+                api_key=config.gemini_api_key,
+                http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1)),
+            )
+            response = client.models.generate_content(
+                model=config.gemini_model,
+                contents=instruction,
+                config=types.GenerateContentConfig(system_instruction=system_prompt, temperature=temperature),
+            )
+            return response.text or ""
+        except Exception as exc:
+            print(f"[aviso] Gemini también falló generando contenido ({exc}), pruebo el modelo local.")
+
+    import local_ai_brain
+
+    if local_ai_brain.is_available(config.ollama_model):
+        try:
+            return local_ai_brain.simple_complete(config.ollama_model, system_prompt, instruction)
+        except Exception as exc:
+            print(f"[aviso] El modelo local también falló generando contenido ({exc}).")
+
+    raise RuntimeError("Groq, Gemini y el modelo local fallaron o no están disponibles ahora mismo.")
+
 PROJECTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "proyectos")
 
 HOME = os.path.expanduser("~")
@@ -115,18 +167,8 @@ def _strip_code_fence(text: str) -> str:
 
 
 def _generate_code(config, instruction: str) -> str:
-    client = Groq(api_key=config.groq_api_key)
-    response = client.chat.completions.create(
-        model=config.groq_model,
-        messages=[
-            {"role": "system", "content": CODE_SYSTEM_PROMPT},
-            {"role": "user", "content": instruction},
-        ],
-        temperature=0.4,
-        max_tokens=4000,
-        reasoning_effort="medium",
-    )
-    return _strip_code_fence(response.choices[0].message.content or "")
+    text = _cascade_complete(config, CODE_SYSTEM_PROMPT, instruction, temperature=0.4, max_tokens=4000)
+    return _strip_code_fence(text)
 
 
 def create_webpage(config, description: str, name: str = "mi_pagina", location: str = "proyectos") -> str:
@@ -177,30 +219,64 @@ DOCUMENT_SYSTEM_PROMPT = (
 
 
 def _generate_text(config, instruction: str) -> str:
-    client = Groq(api_key=config.groq_api_key)
-    response = client.chat.completions.create(
-        model=config.groq_model,
-        messages=[
-            {"role": "system", "content": DOCUMENT_SYSTEM_PROMPT},
-            {"role": "user", "content": instruction},
-        ],
-        temperature=0.7,
-        max_tokens=4000,
-        reasoning_effort="medium",
-    )
-    return _strip_code_fence(response.choices[0].message.content or "")
+    text = _cascade_complete(config, DOCUMENT_SYSTEM_PROMPT, instruction, temperature=0.7, max_tokens=4000)
+    return _strip_code_fence(text)
 
 
-def create_document(config, description: str, name: str = "documento", location: str = "documentos") -> str:
-    """Escribe un documento de texto real (cuento, carta, ensayo...) y lo guarda
-    y abre de verdad — a diferencia de pedirle a la IA que solo "diga" que lo hizo."""
-    base, recognized = _resolve_base(location)
-    os.makedirs(base, exist_ok=True)
-    path = os.path.join(base, _safe_name(name) + ".txt")
+DOCUMENT_EXTENSIONS = {"txt": "txt", "word": "docx", "docx": "docx", "pdf": "pdf"}
 
-    text = _generate_text(config, description)
+
+def _write_txt(path: str, text: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
+
+
+def _write_docx(path: str, text: str) -> None:
+    from docx import Document
+
+    doc = Document()
+    for paragraph in text.split("\n"):
+        doc.add_paragraph(paragraph)
+    doc.save(path)
+
+
+def _write_pdf(path: str, text: str) -> None:
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+    for paragraph in text.split("\n"):
+        # latin-1 cubre bien los acentos y la ñ del español — las fuentes base
+        # de fpdf no traen soporte unicode completo sin cargar una fuente TTF
+        # aparte, y para texto en español esto alcanza sin agregar esa carga.
+        safe = paragraph.encode("latin-1", errors="replace").decode("latin-1")
+        # Sin new_x="LMARGIN", multi_cell deja el cursor pegado al margen
+        # DERECHO después de cada línea — la siguiente llamada calcula un
+        # ancho disponible casi nulo y revienta con "Not enough horizontal
+        # space to render a single character" (reproducido de verdad).
+        pdf.multi_cell(0, 8, safe, new_x="LMARGIN", new_y="NEXT")
+    pdf.output(path)
+
+
+def create_document(
+    config, description: str, name: str = "documento", location: str = "documentos", format: str = "txt"
+) -> str:
+    """Escribe un documento real (cuento, carta, ensayo...) en el formato pedido
+    (texto plano, Word o PDF) y lo guarda y abre de verdad — a diferencia de
+    pedirle a la IA que solo "diga" que lo hizo."""
+    base, recognized = _resolve_base(location)
+    os.makedirs(base, exist_ok=True)
+    ext = DOCUMENT_EXTENSIONS.get(format.strip().lower(), "txt")
+    path = os.path.join(base, _safe_name(name) + "." + ext)
+
+    text = _generate_text(config, description)
+    if ext == "docx":
+        _write_docx(path, text)
+    elif ext == "pdf":
+        _write_pdf(path, text)
+    else:
+        _write_txt(path, text)
 
     try:
         os.startfile(path)

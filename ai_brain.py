@@ -463,6 +463,11 @@ TOOLS = [
                         "type": "string",
                         "description": "Dónde guardarlo: documentos, escritorio o descargas. Por defecto documentos.",
                     },
+                    "format": {
+                        "type": "string",
+                        "enum": ["txt", "word", "pdf"],
+                        "description": "Formato del archivo. Si el usuario no especifica, usa 'txt'.",
+                    },
                 },
                 "required": ["description"],
             },
@@ -781,7 +786,11 @@ def build_tool_functions(config) -> dict:
         "forget_fact": lambda args: mem.forget(args["key"]),
         "create_folder": lambda args: cg.create_folder(args["name"], args.get("location", "documentos")),
         "create_document": lambda args: cg.create_document(
-            config, args["description"], args.get("name", "documento"), args.get("location", "documentos")
+            config,
+            args["description"],
+            args.get("name", "documento"),
+            args.get("location", "documentos"),
+            args.get("format", "txt"),
         ),
         "open_folder": lambda args: cg.open_folder(args.get("location", "documentos")),
         "list_files": lambda args: cg.list_files(args.get("location", "documentos")),
@@ -837,21 +846,34 @@ class AIBrain:
         # encadenados (ej. "crea una carpeta y dentro una página web"), donde el
         # segundo paso depende del resultado del primero. Seguimos llamando al
         # modelo CON las tools disponibles hasta que responda solo con texto.
+        #
+        # Si ya se ejecutó una herramienta de verdad en este turno y LUEGO la
+        # llamada de "resumen final" falla (ej. cupo agotado a mitad de turno,
+        # visto de verdad con Gemini: creó un documento real y después no pudo
+        # ni contarlo), es mejor devolver el resultado real de la herramienta
+        # que dejar que todo el turno se reinicie desde cero en otro cerebro
+        # que no tiene ni idea de que ya se hizo algo.
+        last_tool_results: list = []
         for _ in range(MAX_TOOL_ROUNDS):
             # Si el usuario canceló (dijo "olvídalo" u otra orden nueva) mientras
             # esperábamos, no tiene sentido seguir encadenando rondas ni gastar
             # otra llamada a la IA por una respuesta que ya nadie va a escuchar.
             if cancel_event is not None and cancel_event.is_set():
                 return None
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=self.history,
-                tools=TOOLS,
-                tool_choice="auto",
-                temperature=0.6,
-                max_tokens=600,
-                reasoning_effort="medium",
-            )
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=self.history,
+                    tools=TOOLS,
+                    tool_choice="auto",
+                    temperature=0.6,
+                    max_tokens=600,
+                    reasoning_effort="medium",
+                )
+            except Exception:
+                if last_tool_results:
+                    return " ".join(last_tool_results)
+                raise
             if cancel_event is not None and cancel_event.is_set():
                 return None
             message = response.choices[0].message
@@ -911,6 +933,7 @@ class AIBrain:
                 if name in VERBATIM_TOOLS:
                     verbatim_result = str(result)
 
+                last_tool_results.append(str(result))
                 self.history.append(
                     {"role": "tool", "tool_call_id": call.id, "name": name, "content": str(result)}
                 )

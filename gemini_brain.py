@@ -95,13 +95,26 @@ class GeminiBrain:
         self.history.append(types.Content(role="user", parts=[types.Part(text=user_text)]))
         self._trim_history()
 
+        # Si ya se ejecutó una herramienta de verdad en este turno y LUEGO la
+        # llamada de "resumen final" falla (ej. se acabó la cuota gratuita de
+        # Gemini a mitad de turno — pasó de verdad: creó un documento real y
+        # después no pudo ni contarlo), es mejor devolver el resultado real de
+        # la herramienta que dejar que todo el turno se reinicie desde cero en
+        # otro cerebro que no tiene ni idea de que ya se hizo algo.
+        last_tool_results: list = []
+
         for _ in range(MAX_TOOL_ROUNDS):
             if cancel_event is not None and cancel_event.is_set():
                 return None
 
-            response = self.client.models.generate_content(
-                model=self.model, contents=self.history, config=self._config()
-            )
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model, contents=self.history, config=self._config()
+                )
+            except Exception:
+                if last_tool_results:
+                    return " ".join(last_tool_results)
+                raise
 
             if cancel_event is not None and cancel_event.is_set():
                 return None
@@ -140,6 +153,7 @@ class GeminiBrain:
                 if name in VERBATIM_TOOLS:
                     verbatim_result = str(result)
 
+                last_tool_results.append(str(result))
                 response_parts.append(
                     types.Part(function_response=types.FunctionResponse(name=name, response={"result": str(result)}))
                 )
