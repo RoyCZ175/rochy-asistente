@@ -6,6 +6,7 @@ user_memory.json
 proyectos/
 .spotify_cache
 university_session.json
+.university_browser_profile/
 university_deadlines.json
 .pytest_cache/
 google_credentials.json

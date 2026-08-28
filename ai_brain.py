@@ -13,6 +13,7 @@ import memory_store as mem
 import moodle_client as moodle
 import spotify_control as spot
 import system_control as sc
+import university_login
 import university_tutor as uni
 
 TOOLS = [
@@ -269,6 +270,21 @@ TOOLS = [
                 "properties": {"task_name": {"type": "string"}},
                 "required": ["task_name"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "university_reconnect",
+            "description": (
+                "Abre una ventana del navegador para que el usuario renueve su sesión de la "
+                "plataforma universitaria cuando expiró. Úsala automáticamente en cuanto "
+                "university_pending_tasks o university_task_detail fallen diciendo que la sesión "
+                "expiró — en vez de solo repetirle el error, ábrele el navegador para que la renueve. "
+                "No bloquea: el usuario tarda en iniciar sesión, así que solo avísale que se abrió "
+                "la ventana y que te diga cuando termine."
+            ),
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {
@@ -699,6 +715,9 @@ estrictamente como TUTOR, nunca como quien hace el trabajo:
 - Puedes usar university_pending_tasks para ver qué tiene pendiente en la plataforma, y university_task_detail
   para leer el enunciado completo de una tarea concreta. Son de solo lectura: no existe ninguna herramienta
   para entregar ni enviar nada en su plataforma, ni la vas a inventar.
+- Si cualquiera de esas dos falla diciendo que la sesión expiró, llama de inmediato a
+  university_reconnect en vez de solo repetirle el error — le abre el navegador para renovarla. Dile que
+  te avise cuando termine, y en ese momento vuelve a intentar la consulta original.
 - Con el enunciado ya leído, puedes explicarlo, dar ejemplos paso a paso y aclarar conceptos.
 - Puedes usar add_deadline/list_deadlines/remove_deadline para ayudarle a organizar sus fechas de entrega.
 - Puedes sugerir por dónde empezar o qué pasos seguir.
@@ -744,6 +763,7 @@ def build_tool_functions(config) -> dict:
         "spotify_set_volume": lambda args: spot.set_volume(config, args["level"]),
         "university_pending_tasks": lambda args: moodle.get_pending_tasks(config),
         "university_task_detail": lambda args: moodle.get_task_detail(config, args["task_name"]),
+        "university_reconnect": lambda args: university_login.start_reconnect(config.university_base_url),
         "calendar_create_event": lambda args: goog.create_event(
             config, args["summary"], args["start_iso"], args.get("end_iso", ""), args.get("description", "")
         ),

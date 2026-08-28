@@ -23,6 +23,15 @@ _cookies = None
 _sesskey = None
 
 
+def invalidate_cache() -> None:
+    """Olvida las cookies/sesskey cargadas en memoria — se llama después de
+    un login nuevo (ver university_login.py) para que la próxima consulta
+    relea la sesión recién guardada en vez de seguir usando la vieja."""
+    global _cookies, _sesskey
+    _cookies = None
+    _sesskey = None
+
+
 def _load_cookies() -> dict:
     global _cookies
     if _cookies is None:
