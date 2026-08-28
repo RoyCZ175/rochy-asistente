@@ -447,7 +447,7 @@ def _broadcast_mode() -> None:
     ui_server.broadcast_mode(ai_mode, study_state.get_subject())
 
 
-def _handle_fast_intent(command_text: str, config, brain, local_brain_ai, voice):
+def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local_brain_ai, voice):
     """Atiende al instante las órdenes de control (salir/pausar/reiniciar/
     cambiar de modo) — ninguna necesita IA, así que nunca tardan. Devuelve el
     estado si aplicó alguna, o None si es charla/tarea normal y debe seguir a
@@ -481,6 +481,8 @@ def _handle_fast_intent(command_text: str, config, brain, local_brain_ai, voice)
         # vía de escape si el modelo se queda "atascado" (ej. sigue negándose a
         # cosas normales tras rechazar un pedido anterior) — sin cerrar la app.
         brain.reset()
+        if gemini_brain_ai is not None:
+            gemini_brain_ai.reset()
         if local_brain_ai is not None:
             local_brain_ai.reset()
         reply = "Listo, empezamos de cero."
@@ -513,7 +515,7 @@ def _handle_fast_intent(command_text: str, config, brain, local_brain_ai, voice)
     return None
 
 
-def _generate_response(command_text: str, config, brain, local_brain_ai, cancel_event) -> str:
+def _generate_response(command_text: str, config, brain, gemini_brain_ai, local_brain_ai, cancel_event) -> str:
     """La parte que sí puede tardar (llamadas a la IA y sus herramientas —
     incluida una que se cuelgue, como Spotify sin sesión). Corre en un hilo
     aparte para no bloquear el micrófono/texto mientras dura. Devuelve None
@@ -561,9 +563,17 @@ def _generate_response(command_text: str, config, brain, local_brain_ai, cancel_
             return brain.ask(ai_input, cancel_event=cancel_event)
         except Exception as exc:
             # Groq puede fallar aunque haya internet (cupo agotado, caída del
-            # servicio, etc.) — si hay IA local, la usamos en vez de solo fallar.
+            # servicio, etc.) — antes de caer a la IA local, se prueba un
+            # segundo proveedor en la nube (Gemini, capa gratuita) si está
+            # configurado: sigue siendo "en línea" de verdad, solo cambia de
+            # proveedor, así que el pill no necesita avisar nada especial aquí.
+            print(f"[aviso] Groq falló ({exc}), pruebo el siguiente respaldo.")
+            if gemini_brain_ai is not None:
+                try:
+                    return gemini_brain_ai.ask(ai_input, cancel_event=cancel_event)
+                except Exception as exc2:
+                    print(f"[aviso] Gemini también falló ({exc2}), uso la IA local de respaldo.")
             if local_brain_ai is not None:
-                print(f"[aviso] Groq falló ({exc}), uso la IA local de respaldo.")
                 # Antes esto pasaba en total silencio para la interfaz: el pill
                 # seguía diciendo "En línea" aunque la respuesta se generara en
                 # local — el usuario no tenía forma de saberlo (esto pasó de
@@ -621,7 +631,7 @@ def _finish_response(config, voice, response) -> str:
     return "handled"
 
 
-def _process_slow_command(command_text, config, brain, local_brain_ai, voice, lock, stop_event) -> None:
+def _process_slow_command(command_text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event) -> None:
     """Ejecuta la parte lenta (IA/herramientas) en su propio hilo. Se queda
     esperando el lock compartido si otra petición sigue en curso — así solo
     una a la vez toca el historial de la IA — pero eso nunca bloquea al
@@ -634,7 +644,7 @@ def _process_slow_command(command_text, config, brain, local_brain_ai, voice, lo
         ui_server.broadcast_state("thinking")
         ack_timer = _start_ack_timer(voice)
         try:
-            response = _generate_response(command_text, config, brain, local_brain_ai, proc.cancel_event)
+            response = _generate_response(command_text, config, brain, gemini_brain_ai, local_brain_ai, proc.cancel_event)
             status = _finish_response(config, voice, response)
         except Exception as exc:
             _report_error(voice, exc)
@@ -669,7 +679,7 @@ def _should_silently_ignore(command_text: str) -> bool:
     return True
 
 
-def _handle_command(command_text: str, config, brain, local_brain_ai, voice, lock, stop_event) -> str:
+def _handle_command(command_text: str, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event) -> str:
     """Punto de entrada único para un comando de voz o texto. Las órdenes de
     control (salir/pausar/reiniciar/cambiar de modo) se atienden al instante;
     todo lo demás (charla, tareas con IA) se despacha a un hilo aparte para
@@ -685,13 +695,13 @@ def _handle_command(command_text: str, config, brain, local_brain_ai, voice, loc
     if study_status is not None:
         return study_status
 
-    fast_status = _handle_fast_intent(command_text, config, brain, local_brain_ai, voice)
+    fast_status = _handle_fast_intent(command_text, config, brain, gemini_brain_ai, local_brain_ai, voice)
     if fast_status is not None:
         return fast_status
 
     thread = threading.Thread(
         target=_process_slow_command,
-        args=(command_text, config, brain, local_brain_ai, voice, lock, stop_event),
+        args=(command_text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event),
         daemon=True,
     )
     thread.start()
@@ -753,7 +763,7 @@ def _wait_while_speaking(stop_event: threading.Event) -> None:
 
 
 def _voice_loop(
-    config, brain, local_brain_ai, voice, listener, lock: threading.Lock, stop_event: threading.Event
+    config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock: threading.Lock, stop_event: threading.Event
 ) -> None:
     while not stop_event.is_set():
         try:
@@ -874,7 +884,7 @@ def _voice_loop(
                 if _handle_cancel_if_requested(command_text, voice):
                     continue
 
-                status = _handle_command(command_text, config, brain, local_brain_ai, voice, lock, stop_event)
+                status = _handle_command(command_text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event)
                 if status == "exit":
                     stop_event.set()
                     break
@@ -888,7 +898,7 @@ def _voice_loop(
 
 
 def _text_loop(
-    config, brain, local_brain_ai, voice, lock: threading.Lock, stop_event: threading.Event
+    config, brain, gemini_brain_ai, local_brain_ai, voice, lock: threading.Lock, stop_event: threading.Event
 ) -> None:
     """Atiende los comandos escritos en la interfaz, en paralelo a la voz.
     Escribir no necesita palabra clave: es una acción explícita del usuario."""
@@ -899,7 +909,7 @@ def _text_loop(
         if _handle_cancel_if_requested(text, voice):
             continue
         try:
-            status = _handle_command(text, config, brain, local_brain_ai, voice, lock, stop_event)
+            status = _handle_command(text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event)
             if status == "exit":
                 stop_event.set()
         except Exception as exc:
@@ -924,6 +934,16 @@ def _assistant_loop(window) -> None:
     voice = VoiceOutput(config.edge_tts_voice)
     brain = AIBrain(config)
 
+    gemini_brain_ai = None
+    if config.gemini_api_key:
+        try:
+            from gemini_brain import GeminiBrain
+
+            gemini_brain_ai = GeminiBrain(config)
+            print(f"Gemini ({config.gemini_model}) disponible como segundo respaldo si Groq falla.")
+        except Exception as exc:
+            print(f"No se pudo preparar Gemini: {exc}")
+
     local_brain_ai = None
     try:
         import local_ai_brain
@@ -944,11 +964,11 @@ def _assistant_loop(window) -> None:
     stop_event = threading.Event()
 
     text_thread = threading.Thread(
-        target=_text_loop, args=(config, brain, local_brain_ai, voice, lock, stop_event), daemon=True
+        target=_text_loop, args=(config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event), daemon=True
     )
     text_thread.start()
 
-    _voice_loop(config, brain, local_brain_ai, voice, listener, lock, stop_event)
+    _voice_loop(config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock, stop_event)
 
     if window is not None:
         window.destroy()

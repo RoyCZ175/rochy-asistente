@@ -31,3 +31,6 @@ sentence-transformers
 pypdf
 python-docx
 numpy
+# Gemini (Google): segundo respaldo en la nube si Groq falla o se queda sin
+# cupo, antes de caer al modelo local. Capa gratuita en https://aistudio.google.com/apikey
+google-genai
