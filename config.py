@@ -47,5 +47,5 @@ class Config:
             google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH", "google_credentials.json").strip(),
             ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct").strip(),
             gemini_api_key=os.getenv("GEMINI_API_KEY", "").strip(),
-            gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
+            gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip(),
         )
