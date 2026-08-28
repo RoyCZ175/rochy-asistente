@@ -564,11 +564,27 @@ def _generate_response(command_text: str, config, brain, local_brain_ai, cancel_
             # servicio, etc.) — si hay IA local, la usamos en vez de solo fallar.
             if local_brain_ai is not None:
                 print(f"[aviso] Groq falló ({exc}), uso la IA local de respaldo.")
-                return local_brain_ai.ask(ai_input, cancel_event=cancel_event)
+                # Antes esto pasaba en total silencio para la interfaz: el pill
+                # seguía diciendo "En línea" aunque la respuesta se generara en
+                # local — el usuario no tenía forma de saberlo (esto pasó de
+                # verdad con el cupo diario de Groq agotado). Se avisa mientras
+                # dura esta respuesta puntual, y se revierte al estado real
+                # apenas termina (no queda "pegado" en local si no corresponde).
+                ui_server.broadcast_mode("local", study_state.get_subject())
+                try:
+                    return local_brain_ai.ask(ai_input, cancel_event=cancel_event)
+                finally:
+                    _broadcast_mode()
             raise
 
     if local_brain_ai is not None:
-        return local_brain_ai.ask(ai_input, cancel_event=cancel_event)
+        # Mismo aviso que arriba: sin internet detectado, se usa la IA local
+        # para esta respuesta — el pill lo refleja mientras dura.
+        ui_server.broadcast_mode("local", study_state.get_subject())
+        try:
+            return local_brain_ai.ask(ai_input, cancel_event=cancel_event)
+        finally:
+            _broadcast_mode()
 
     return (
         "No tengo internet ni un modelo de IA local instalado ahora mismo. "

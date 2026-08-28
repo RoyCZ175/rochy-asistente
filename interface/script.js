@@ -14,7 +14,13 @@ const STATE_LABELS = {
 function setState(name) {
   if (!STATE_LABELS[name]) return;
   orb.setState(name);
-  if (!studySubjectActive) {
+  if (name === 'idle') {
+    // "En línea" a secas estaba mal aquí: pisaba el texto correcto (modo
+    // local, o la materia de estudio activa) cada vez que volvía a idle,
+    // aunque el puntito de color sí quedaba bien — quedaba diciendo "En
+    // línea" con el punto en naranja de modo local al mismo tiempo.
+    updateStatusBar();
+  } else if (!studySubjectActive) {
     document.getElementById('statusText').textContent = STATE_LABELS[name].label;
     document.getElementById('statusSub').textContent = STATE_LABELS[name].sub;
   }
@@ -45,6 +51,9 @@ function updateStatusBar() {
   studySubjectActive = !!currentStudySubject;
   const dot = document.getElementById('statusDot');
   dot.classList.toggle('local', currentAiMode === 'local');
+  // Fondo de "nubes" de color (ver #modeGlow en style.css) — mismo cambio
+  // que el puntito de estado, pero de un vistazo en toda la pantalla.
+  document.body.classList.toggle('mode-local', currentAiMode === 'local');
 
   if (studySubjectActive) {
     document.getElementById('statusText').textContent = 'Estudiando: ' + currentStudySubject;
