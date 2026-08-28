@@ -57,7 +57,16 @@ def _typing_intent_present(history: list) -> bool:
 
 class GeminiBrain:
     def __init__(self, config):
-        self.client = genai.Client(api_key=config.gemini_api_key)
+        # Por defecto el SDK reintenta hasta 5 veces con espera exponencial
+        # (1s, 2s, 4s, 8s...) ante un error como "servidor con mucha demanda"
+        # — eso solo, sin contar el tiempo de la petición en sí, puede sumar
+        # 15-30 segundos de espera ANTES de que Gemini termine de fallar de
+        # verdad. Como ya tenemos nuestra propia cadena de respaldo (Groq ->
+        # Gemini -> local, ver voice_assistant.py), esos reintentos internos
+        # son pura demora redundante: mejor que falle rápido una vez y deje
+        # que el siguiente respaldo (local) entre en acción cuanto antes.
+        http_options = types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1))
+        self.client = genai.Client(api_key=config.gemini_api_key, http_options=http_options)
         self.model = config.gemini_model
         self.functions = build_tool_functions(config)
         self._system_content = SYSTEM_PROMPT.format(

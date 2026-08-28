@@ -809,7 +809,12 @@ def _end_session(mode: str) -> str:
 
 class AIBrain:
     def __init__(self, config):
-        self.client = Groq(api_key=config.groq_api_key)
+        # max_retries=0: por defecto el SDK reintenta 2 veces más ante fallos
+        # (incluido cupo agotado, que va a fallar igual en el reintento) —
+        # como ya hay una cadena de respaldo propia (Gemini -> local, ver
+        # voice_assistant.py), esos reintentos solo suman demora antes de que
+        # el siguiente respaldo pueda entrar en acción.
+        self.client = Groq(api_key=config.groq_api_key, max_retries=0)
         self.model = config.groq_model
         self.max_turns = 12
         self.functions = build_tool_functions(config)
