@@ -7,6 +7,11 @@ pyautogui
 keyboard
 pycaw
 comtypes
+# Activar/desactivar Wi-Fi y Bluetooth sin permisos de administrador (misma
+# API que usa el propio Centro de actividades de Windows).
+winrt-Windows.Devices.Radios
+winrt-Windows.Foundation
+winrt-Windows.Foundation.Collections
 python-dotenv
 websockets
 pywebview

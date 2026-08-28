@@ -95,6 +95,60 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "set_brightness",
+            "description": (
+                "Fija el brillo de la pantalla a un porcentaje exacto (0-100). Solo funciona con la "
+                "pantalla integrada (laptop); un monitor externo puede no responder."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"level": {"type": "integer"}},
+                "required": ["level"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "brightness_step",
+            "description": "Sube o baja el brillo de la pantalla de forma relativa.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "direction": {"type": "string", "enum": ["up", "down"]},
+                    "steps": {"type": "integer"},
+                },
+                "required": ["direction"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_wifi",
+            "description": "Activa o desactiva el Wi-Fi del equipo, sin necesidad de abrir Configuración.",
+            "parameters": {
+                "type": "object",
+                "properties": {"enabled": {"type": "boolean"}},
+                "required": ["enabled"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_bluetooth",
+            "description": "Activa o desactiva el Bluetooth del equipo, sin necesidad de abrir Configuración.",
+            "parameters": {
+                "type": "object",
+                "properties": {"enabled": {"type": "boolean"}},
+                "required": ["enabled"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "type_text",
             "description": (
                 "Escribe texto tecleándolo en la ventana que tenga el foco en ese momento. "
@@ -753,6 +807,10 @@ def build_tool_functions(config) -> dict:
         "set_volume": lambda args: sc.set_volume(args["level"]),
         "volume_step": lambda args: sc.volume_step(args["direction"], args.get("steps", 10)),
         "mute_toggle": lambda args: sc.mute_toggle(),
+        "set_brightness": lambda args: sc.set_brightness(args["level"]),
+        "brightness_step": lambda args: sc.brightness_step(args["direction"], args.get("steps", 10)),
+        "set_wifi": lambda args: sc.set_wifi(args["enabled"]),
+        "set_bluetooth": lambda args: sc.set_bluetooth(args["enabled"]),
         "type_text": lambda args: sc.type_text(args["text"]),
         "press_key": lambda args: sc.press_key(args["key"]),
         "hotkey": lambda args: sc.hotkey(args["keys"]),

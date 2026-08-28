@@ -5,6 +5,7 @@ arbitrarios) para que pueda ser invocada de forma segura desde la IA
 mediante function calling.
 """
 
+import asyncio
 import json
 import os
 import subprocess
@@ -14,6 +15,7 @@ from datetime import datetime
 
 import keyboard as kb
 import pyautogui
+from winrt.windows.devices.radios import Radio, RadioState
 
 pyautogui.FAILSAFE = True  # mover el mouse a una esquina aborta cualquier acción en curso
 
@@ -189,3 +191,80 @@ def mute_toggle() -> str:
     muted = bool(vol.GetMute())
     vol.SetMute(not muted, None)
     return "Silenciado." if not muted else "Sonido activado."
+
+
+def _read_brightness() -> int:
+    result = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightness).CurrentBrightness",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    return int(result.stdout.strip())
+
+
+def set_brightness(level: int) -> str:
+    # Vía WMI (WmiMonitorBrightnessMethods) — funciona con la pantalla propia
+    # de una laptop; una pantalla externa por HDMI/DisplayPort normalmente
+    # NO responde a esto (necesitaría DDC/CI, que es harina de otro costal).
+    level = max(0, min(100, level))
+    try:
+        subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                f"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{level})",
+            ],
+            capture_output=True,
+            timeout=10,
+            check=True,
+        )
+        return f"Brillo de la pantalla al {level} por ciento."
+    except Exception:
+        return "No pude cambiar el brillo — puede que esta pantalla (ej. un monitor externo) no lo soporte."
+
+
+def brightness_step(direction: str, steps: int = 10) -> str:
+    try:
+        current = _read_brightness()
+    except Exception:
+        current = 50
+    delta = steps if direction == "up" else -steps
+    return set_brightness(current + delta)
+
+
+async def _find_radio(name: str):
+    radios = await Radio.get_radios_async()
+    return next((r for r in radios if r.name == name), None)
+
+
+async def _set_radio_state(name: str, enabled: bool) -> bool:
+    radio = await _find_radio(name)
+    if radio is None:
+        return False
+    await radio.set_state_async(RadioState.ON if enabled else RadioState.OFF)
+    return True
+
+
+def set_wifi(enabled: bool) -> str:
+    # Vía la API de Radios de Windows (la misma que usa el propio Centro de
+    # actividades) — a propósito NO se usa "netsh interface", que exige
+    # permisos de administrador; esto funciona con el usuario normal.
+    ok = asyncio.run(_set_radio_state("Wi-Fi", enabled))
+    if not ok:
+        return "No encontré un adaptador de Wi-Fi en este equipo."
+    return "Wi-Fi activado." if enabled else "Wi-Fi desactivado."
+
+
+def set_bluetooth(enabled: bool) -> str:
+    ok = asyncio.run(_set_radio_state("Bluetooth", enabled))
+    if not ok:
+        return "No encontré un adaptador de Bluetooth en este equipo."
+    return "Bluetooth activado." if enabled else "Bluetooth desactivado."
