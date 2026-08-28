@@ -83,8 +83,21 @@ def _ajax_call(config, methodname: str, **args) -> dict:
     return result["data"]
 
 
+def _shorten(text: str, max_len: int = 180) -> str:
+    """Recorta descripciones largas para el resumen de varias tareas juntas
+    (hablar el enunciado completo de 10 tareas seguidas sería un muro de
+    texto interminable por voz) — el enunciado completo sigue disponible
+    pidiendo esa tarea puntual con get_task_detail."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rsplit(" ", 1)[0] + "…"
+
+
 def get_pending_tasks(config, limit: int = 10) -> str:
-    """Replica la 'Línea de tiempo' del dashboard: próximas actividades con fecha de entrega."""
+    """Replica la 'Línea de tiempo' del dashboard: próximas actividades con
+    fecha de entrega, AHORA con un adelanto de la descripción de cada una
+    (antes solo mostraba el título — que casi nunca dice de qué se trata de
+    verdad, ej. "Tarea 3" o "Foro semana 5")."""
     data = _ajax_call(
         config,
         "core_calendar_get_action_events_by_timesort",
@@ -100,7 +113,8 @@ def get_pending_tasks(config, limit: int = 10) -> str:
         course = (ev.get("course") or {}).get("fullname", "")
         due = time.strftime("%d/%m %H:%M", time.localtime(ev.get("timesort", 0)))
         name = ev.get("activityname") or ev.get("name")
-        lines.append(f"{name} ({course}) - {due}")
+        description = _shorten(_fetch_activity_description(ev.get("url")))
+        lines.append(f"{name} ({course}) - {due}. {description}")
     return "Tus próximas entregas en la plataforma: " + "; ".join(lines) + "."
 
 
