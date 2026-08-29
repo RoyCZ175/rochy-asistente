@@ -2,13 +2,22 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Rochy — Micrófono remoto</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#05060b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rochy">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
   :root {
     --blue: #00d9ff;
     --purple: #b347ff;
     --pink: #ff2f9e;
+    --orange: #ff9900;
     --green: #3dffa0;
     --bg: #05060b;
     --panel: #0c0f1a;
@@ -28,62 +37,95 @@
     overflow: hidden;
     overscroll-behavior: none;
   }
+
+  /* Fondo tipo "nubes" sutil, mismo lenguaje visual que la app de escritorio */
+  #glowBg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #glowBg::before, #glowBg::after {
+    content: '';
+    position: absolute;
+    width: 90vw;
+    height: 90vw;
+    border-radius: 50%;
+    filter: blur(70px);
+    opacity: 0.14;
+    animation: glowDrift 20s ease-in-out infinite;
+  }
+  #glowBg::before {
+    top: -20%; left: -25%;
+    background: radial-gradient(circle, var(--blue), transparent 70%);
+  }
+  #glowBg::after {
+    bottom: -25%; right: -20%;
+    background: radial-gradient(circle, var(--pink), transparent 70%);
+    animation-delay: -10s;
+  }
+  @keyframes glowDrift {
+    0%, 100% { transform: translate(0,0) scale(1); }
+    50% { transform: translate(5%,4%) scale(1.1); }
+  }
+
   #app {
     display: flex;
     flex-direction: column;
+    align-items: center;
     height: 100dvh;
-    padding: 18px;
+    padding: max(16px, env(safe-area-inset-top)) 18px max(16px, env(safe-area-inset-bottom)) 18px;
   }
-  #header {
-    text-align: center;
-    flex: 0 0 auto;
-  }
+
   #title {
     font-size: 22px;
     font-weight: 700;
-    letter-spacing: 4px;
-    margin: 0;
-    background: linear-gradient(90deg, var(--blue), var(--purple), var(--pink));
+    letter-spacing: 6px;
+    margin: 2px 0 0 0;
+    background: linear-gradient(90deg, var(--blue), var(--purple), var(--pink), var(--orange), var(--green), var(--blue));
+    background-size: 350% auto;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+    animation: titleShift 10s linear infinite;
   }
-  #connStatus {
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--text-dim);
-  }
-  #connStatus.connected { color: var(--green); }
-  #connStatus.disconnected { color: var(--pink); }
+  @keyframes titleShift { to { background-position: -300% center; } }
 
-  #log {
-    flex: 1 1 auto;
-    overflow-y: auto;
-    margin: 16px 0;
-    padding: 4px 2px;
+  #connPill {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 0;
-  }
-  .bubble {
-    max-width: 85%;
-    padding: 8px 12px;
-    border-radius: 14px;
-    font-size: 13px;
-    line-height: 1.4;
-    word-wrap: break-word;
-  }
-  .bubble.user {
-    align-self: flex-end;
-    background: linear-gradient(135deg, #1c3a66, #23305e);
-    color: #e4edff;
-  }
-  .bubble.assistant {
-    align-self: flex-start;
-    background: var(--panel);
+    align-items: center;
+    gap: 7px;
+    margin-top: 8px;
+    padding: 5px 14px;
+    border-radius: 20px;
     border: 1px solid var(--border);
-    color: #cfe0ff;
+    background: var(--panel);
+    font-size: 11.5px;
+    color: var(--text-dim);
+    flex: 0 0 auto;
+  }
+  #connDot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--pink);
+    box-shadow: 0 0 6px var(--pink);
+    flex: 0 0 auto;
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+  }
+  #connDot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  #orbWrap {
+    position: relative;
+    width: min(58vw, 220px);
+    height: min(58vw, 220px);
+    margin: 14px auto 6px auto;
+    flex: 0 0 auto;
+  }
+  #orbWrap canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
   }
 
   #stateLabel {
@@ -91,70 +133,150 @@
     font-size: 13px;
     color: var(--text-dim);
     flex: 0 0 auto;
-    margin-bottom: 10px;
     min-height: 18px;
+    margin-bottom: 4px;
+  }
+
+  #log {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 420px;
+    overflow-y: auto;
+    margin: 6px 0 10px 0;
+    padding: 4px 2px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+  }
+  #log::-webkit-scrollbar { width: 5px; }
+  #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .bubble {
+    max-width: 85%;
+    padding: 8px 12px;
+    border-radius: 14px;
+    font-size: 13px;
+    line-height: 1.42;
+    word-wrap: break-word;
+    animation: bubbleIn 0.2s ease-out;
+  }
+  @keyframes bubbleIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  .bubble.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, #1c3a66, #23305e);
+    color: #e4edff;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.assistant {
+    align-self: flex-start;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: #cfe0ff;
+    border-bottom-left-radius: 4px;
   }
 
   #talkBtn {
     flex: 0 0 auto;
-    width: 150px;
-    height: 150px;
+    width: 128px;
+    height: 128px;
     border-radius: 50%;
-    margin: 0 auto 20px auto;
+    margin: 4px auto 10px auto;
     border: none;
-    background: linear-gradient(135deg, var(--blue), var(--purple));
-    color: #fff;
-    font-size: 15px;
+    position: relative;
+    background: radial-gradient(circle at 35% 30%, #1c2340, #0c0f1a 70%);
+    box-shadow:
+      0 0 0 1.5px var(--border) inset,
+      0 10px 30px #00000066,
+      0 0 26px #00d9ff22;
+    color: var(--text);
+    font-size: 13px;
     font-weight: 700;
-    letter-spacing: 1px;
+    letter-spacing: 0.5px;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 0 30px #00d9ff33;
-    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    text-align: center;
+    line-height: 1.35;
     user-select: none;
     touch-action: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
   }
+  #talkBtn::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    padding: 1.5px;
+    background: conic-gradient(from 0deg, var(--blue), var(--purple), var(--pink), var(--orange), var(--green), var(--blue));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0.55;
+    animation: spinRing 6s linear infinite;
+  }
+  @keyframes spinRing { to { transform: rotate(360deg); } }
   #talkBtn.recording {
-    transform: scale(1.08);
-    background: linear-gradient(135deg, var(--pink), #ff5c3d);
-    box-shadow: 0 0 50px #ff2f9e66;
+    transform: scale(1.07);
+    background: radial-gradient(circle at 35% 30%, #401c3a, #180a16 70%);
+    box-shadow:
+      0 0 0 1.5px var(--pink) inset,
+      0 10px 34px #00000077,
+      0 0 46px #ff2f9e55;
   }
-  #talkBtn:disabled {
-    opacity: 0.4;
-  }
+  #talkBtn:disabled { opacity: 0.35; }
+
   #hint {
     text-align: center;
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--text-dim);
     flex: 0 0 auto;
-    padding-bottom: 6px;
+    opacity: 0.75;
+    padding-bottom: 2px;
   }
 </style>
 </head>
 <body>
+<div id="glowBg"></div>
 <div id="app">
-  <div id="header">
-    <h1 id="title">ROCHY</h1>
-    <div id="connStatus" class="disconnected">Conectando…</div>
+  <h1 id="title" class="display-font">ROCHY</h1>
+  <div id="connPill"><span id="connDot"></span><span id="connText">Conectando…</span></div>
+
+  <div id="orbWrap">
+    <canvas id="orbGl"></canvas>
+    <canvas id="orbParticles"></canvas>
   </div>
+
+  <div id="stateLabel"></div>
 
   <div id="log"></div>
 
-  <div id="stateLabel"></div>
-  <button id="talkBtn">Mantén<br>presionado<br>para hablar</button>
-  <div id="hint">Este celular es un micrófono remoto — no hace falta decir "hola" primero.</div>
+  <button id="talkBtn">Mantén<br>presionado</button>
+  <div id="hint">Micrófono remoto — no hace falta decir "hola"</div>
 </div>
 
+<script src="orb.js"></script>
 <script>
+const orb = SiriOrb.init(document.getElementById('orbGl'), document.getElementById('orbParticles'));
+
 const log = document.getElementById('log');
-const connStatus = document.getElementById('connStatus');
+const connDot = document.getElementById('connDot');
+const connText = document.getElementById('connText');
 const stateLabel = document.getElementById('stateLabel');
 const talkBtn = document.getElementById('talkBtn');
 
 const STATE_LABELS = {
-  idle: '', listening: 'Escuchando…', thinking: 'Pensando…', speaking: 'Hablando…',
+  idle: 'Lista', listening: 'Escuchando…', thinking: 'Pensando…', speaking: 'Hablando…',
 };
+
+function setState(name) {
+  if (!STATE_LABELS[name]) return;
+  orb.setState(name);
+  stateLabel.textContent = STATE_LABELS[name];
+}
+setState('idle');
 
 function addBubble(role, text) {
   const div = document.createElement('div');
@@ -167,14 +289,17 @@ function addBubble(role, text) {
 // --- WebSocket: mismo servidor que usa la interfaz de escritorio ---
 let ws;
 function connect() {
-  ws = new WebSocket(`ws://${location.hostname}:8765`);
+  // Mismo origen del que se cargó esta página (https://<ip>:8767) — el
+  // certificado autofirmado que el navegador ya aceptó para la página
+  // sirve también para esta conexión, al ser el mismo host+puerto.
+  ws = new WebSocket(`wss://${location.host}`);
   ws.onopen = () => {
-    connStatus.textContent = 'Conectado';
-    connStatus.className = 'connected';
+    connText.textContent = 'Conectado';
+    connDot.classList.add('on');
   };
   ws.onclose = () => {
-    connStatus.textContent = 'Reconectando…';
-    connStatus.className = 'disconnected';
+    connText.textContent = 'Reconectando…';
+    connDot.classList.remove('on');
     setTimeout(connect, 1500);
   };
   ws.onerror = () => ws.close();
@@ -182,9 +307,11 @@ function connect() {
     let data;
     try { data = JSON.parse(event.data); } catch (e) { return; }
     if (data.type === 'state') {
-      stateLabel.textContent = STATE_LABELS[data.state] || '';
+      setState(data.state);
     } else if (data.type === 'transcript' && data.text) {
       addBubble(data.role, data.text);
+    } else if (data.type === 'voice_envelope') {
+      orb.setVoiceEnvelope(data.envelope, data.step_ms);
     }
   };
 }
@@ -239,12 +366,12 @@ async function startRecording() {
   };
   mediaRecorder.start();
   talkBtn.classList.add('recording');
-  talkBtn.textContent = 'Soltá para\nenviar';
+  talkBtn.innerHTML = 'Soltá para<br>enviar';
 }
 
 function stopRecording() {
   talkBtn.classList.remove('recording');
-  talkBtn.textContent = 'Mantén\npresionado\npara hablar';
+  talkBtn.innerHTML = 'Mantén<br>presionado';
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
   }
@@ -259,6 +386,10 @@ talkBtn.addEventListener('mouseleave', () => { if (mediaRecorder) stopRecording(
 if (!window.MediaRecorder || !navigator.mediaDevices) {
   talkBtn.disabled = true;
   addBubble('assistant', 'Este navegador no soporta grabar audio (probá con Chrome o Safari actualizados).');
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('remote-sw.js').catch(() => {});
 }
 </script>
 </body>

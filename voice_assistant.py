@@ -1052,11 +1052,12 @@ def run() -> None:
     import ui_bridge
 
     ui_server.start()
-    ui_server.start_http()
     lan_ip = ui_server.get_lan_ip()
     print(
-        f"Micrófono remoto: abre http://{lan_ip}:{ui_server.HTTP_PORT}/remote.html "
-        f"desde el navegador de tu celular (misma red WiFi)."
+        f"Micrófono remoto: abre https://{lan_ip}:{ui_server.REMOTE_PORT}/remote.html "
+        f"desde el navegador de tu celular (misma red WiFi). El certificado es "
+        f"autofirmado — el navegador va a avisar que no es seguro la primera vez, "
+        f"elegí \"Avanzado\" / \"Continuar de todas formas\", es esperado."
     )
     window = webview.create_window(
         assistant_name,
