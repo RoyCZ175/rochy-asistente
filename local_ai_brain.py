@@ -96,15 +96,27 @@ def simple_complete(model: str, system_prompt: str, instruction: str) -> str:
     return resp.json().get("message", {}).get("content", "")
 
 
-def is_available(model: str) -> bool:
-    """Comprueba si Ollama está corriendo y el modelo pedido está descargado."""
-    try:
-        resp = requests.get(f"{OLLAMA_BASE}/api/tags", timeout=2)
-        resp.raise_for_status()
-    except Exception:
-        return False
-    names = [m.get("name", "") for m in resp.json().get("models", [])]
-    return any(model == n or n.startswith(model + ":") for n in names)
+def is_available(model: str, attempts: int = 3, delay_seconds: float = 1.5) -> bool:
+    """Comprueba si Ollama está corriendo y el modelo pedido está descargado.
+
+    Esto se llama UNA sola vez, al arrancar Rochy — si en ese momento Ollama
+    todavía está iniciando (ej. la PC recién prendió y Windows lo está
+    levantando en segundo plano), un solo intento de 2 segundos puede fallar
+    aunque Ollama esté perfectamente bien segundos después, dejando el modo
+    local no disponible toda la sesión sin necesidad (visto de verdad).
+    Reintenta unas pocas veces con una espera corta antes de rendirse."""
+    import time
+
+    for attempt in range(attempts):
+        try:
+            resp = requests.get(f"{OLLAMA_BASE}/api/tags", timeout=2)
+            resp.raise_for_status()
+            names = [m.get("name", "") for m in resp.json().get("models", [])]
+            return any(model == n or n.startswith(model + ":") for n in names)
+        except Exception:
+            if attempt < attempts - 1:
+                time.sleep(delay_seconds)
+    return False
 
 
 class LocalAIBrain:

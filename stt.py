@@ -1,7 +1,11 @@
 """Captura de audio del micrófono y transcripción de voz a texto.
 
 Usa Groq Whisper (nube, mejor calidad) cuando hay internet, y cae
-automáticamente a Vosk (local, funciona sin internet) cuando no."""
+automáticamente a Vosk (local, funciona sin internet) cuando no. Si el
+usuario forzó "modo local" a propósito, se queda en Vosk directamente aunque
+SÍ haya internet — si no, "modo local" solo afectaba al cerebro (las
+respuestas), pero la voz seguía mandándose a la nube igual, algo que no
+tenía sentido si la idea de ese modo es no depender de la nube para nada."""
 
 import io
 
@@ -11,6 +15,7 @@ from groq import Groq
 
 import connectivity
 import local_stt
+import mode_state
 
 # Frecuencia y duración de cuadro que exige WebRTC VAD (solo acepta 8000,
 # 16000, 32000 o 48000 Hz, y cuadros de 10, 20 o 30ms exactos).
@@ -87,7 +92,7 @@ class SpeechListener:
         return self._transcribe(audio)
 
     def _transcribe(self, audio: sr.AudioData) -> str:
-        if connectivity.is_online():
+        if not mode_state.is_forced_local() and connectivity.is_online():
             text = self._transcribe_cloud(audio)
             if text:
                 return text
