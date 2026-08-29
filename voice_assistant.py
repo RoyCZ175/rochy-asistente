@@ -214,7 +214,7 @@ def _has_word_starting_with(text: str, *roots: str) -> bool:
 OTHER_TARGET_WORDS = (
     "wifi", "wi-fi", "online", "internet", "volumen", "modo", "notificacion",
     "pantalla", "luz", "bluetooth", "brillo", "sonido", "microfono", "camara",
-    "bateria", "avion",
+    "bateria", "avion", "remoto",
 )
 
 
@@ -230,12 +230,28 @@ FORCE_ONLINE_PHRASES = (
     "usa groq", "vuelve a la nube", "usa el modelo grande",
 )
 
+# Frases para pasar al "control remoto" (micrófono del celular como entrada
+# principal, ver interface/remote.html) y su contraparte para volver al
+# micrófono normal de la PC. Ojo: NO se usa "modo normal" aquí — esa frase ya
+# significa "vuelve a la nube" arriba (FORCE_ONLINE_PHRASES); usar la misma
+# frase para dos cosas distintas sería ambiguo.
+REMOTE_CONTROL_ON_PHRASES = (
+    "control remoto", "activa el control remoto", "modo control remoto",
+    "pasa a control remoto", "usa el celular como microfono",
+)
+REMOTE_CONTROL_OFF_PHRASES = (
+    "desactiva el control remoto", "sal del control remoto",
+    "termina el control remoto", "apaga el control remoto",
+    "deja el control remoto", "vuelve al microfono normal",
+)
+
 
 def _classify_control_intent(command_text: str) -> str:
     """Detecta frases de control (salir/pausar/reiniciar/modo local) tolerando
     variaciones de conjugación, acentos y palabras de más alrededor — no exige
     una coincidencia exacta con una frase fija. Devuelve 'exit',
-    'end_conversation', 'reset', 'force_local', 'force_online' o 'none'."""
+    'end_conversation', 'reset', 'force_local', 'force_online',
+    'remote_control_on', 'remote_control_off' o 'none'."""
     text = _normalize_text(command_text)
     targets_something_else = any(word in text for word in OTHER_TARGET_WORDS)
 
@@ -272,6 +288,14 @@ def _classify_control_intent(command_text: str) -> str:
         return "force_local"
     if is_short_command and any(p in text for p in FORCE_ONLINE_PHRASES):
         return "force_online"
+
+    # OFF se revisa antes que ON a propósito: "desactiva el control remoto"
+    # también contiene la subcadena "control remoto" (la frase de ON), así
+    # que si se revisara ON primero nunca se llegaría a detectar el OFF.
+    if is_short_command and any(p in text for p in REMOTE_CONTROL_OFF_PHRASES):
+        return "remote_control_off"
+    if is_short_command and any(p in text for p in REMOTE_CONTROL_ON_PHRASES):
+        return "remote_control_on"
 
     return "none"
 
@@ -510,6 +534,28 @@ def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
         _broadcast_mode()
+        return "handled"
+
+    if intent == "remote_control_on":
+        mode_state.set_remote_control(True)
+        reply = (
+            "Listo, control remoto activado. Ya no escucho la palabra clave en la PC — "
+            "usa el celular para hablarme. Si estoy hablando, puedes decir 'espera' o "
+            "'cancela' y te sigo escuchando para eso."
+        )
+        print(f"{config.assistant_name}: {reply} [control remoto activado]")
+        voice.speak(reply)
+        ui_server.broadcast_transcript("assistant", reply)
+        ui_server.broadcast_remote_control(True)
+        return "handled"
+
+    if intent == "remote_control_off":
+        mode_state.set_remote_control(False)
+        reply = "Listo, vuelvo a escuchar la palabra clave normalmente en la PC."
+        print(f"{config.assistant_name}: {reply} [control remoto desactivado]")
+        voice.speak(reply)
+        ui_server.broadcast_transcript("assistant", reply)
+        ui_server.broadcast_remote_control(False)
         return "handled"
 
     return None
@@ -767,6 +813,27 @@ def _voice_loop(
 ) -> None:
     while not stop_event.is_set():
         try:
+            if mode_state.is_remote_control():
+                # El celular (botón de mantener presionado) es la entrada
+                # principal en este modo — no hace falta detectar la palabra
+                # clave en la PC. El único caso en que el micrófono de la PC
+                # sigue vivo es mientras Rochy habla, y solo para poder
+                # cortarla (ver CANCEL_PHRASES) — eso nunca se desactiva, sin
+                # importar el modo.
+                speaking_now = proc.speaking_event.is_set()
+                ui_server.broadcast_state("speaking" if speaking_now else "idle")
+                if speaking_now:
+                    command_text = listener.listen(timeout=1.5, phrase_time_limit=3)
+                    if command_text and _is_cancel(command_text):
+                        print(f"Tú: {command_text}")
+                        ui_server.broadcast_transcript("user", command_text)
+                        voice.stop_speaking()
+                        proc.cancel_event.set()
+                        ui_server.broadcast_transcript("assistant", "[interrumpido]")
+                else:
+                    time.sleep(0.3)
+                continue
+
             ui_server.broadcast_state("idle")
             _wait_while_speaking(stop_event)
             heard = listener.listen(timeout=5, phrase_time_limit=4)

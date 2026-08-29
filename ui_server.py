@@ -225,6 +225,13 @@ def broadcast_mode(ai_mode: str, study_subject) -> None:
     _broadcast({"type": "mode_update", "ai_mode": ai_mode, "study_subject": study_subject})
 
 
+def broadcast_remote_control(active: bool) -> None:
+    """Le avisa a la interfaz si el 'control remoto' (micrófono del celular
+    como entrada principal) está activo, para reflejarlo en el botón/card
+    correspondiente sin que el usuario tenga que preguntarlo."""
+    _broadcast({"type": "remote_control_update", "active": active})
+
+
 def broadcast_voice_envelope(envelope: list, step_ms: int) -> None:
     """Manda el volumen real de la voz que está a punto de sonar (ver
     tts.py) para que el orbe pueda crecer/encoger siguiendo los altos y
