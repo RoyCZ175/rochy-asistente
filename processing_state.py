@@ -47,3 +47,12 @@ speech_ended_at = 0.0
 # por terminada que una respuesta corta (ver CONVERSATION_TIMEOUT en
 # voice_assistant.py, que ya no es un número fijo).
 last_speech_seconds = 0.0
+
+# Puesto cuando se pide "descansa" (terminar la conversación activa) desde
+# CUALQUIER canal (voz, texto o celular) — el bucle de voz lo revisa para
+# cortar su propia conversación en curso aunque la orden haya llegado por
+# otro canal. Sin esto pasaba de verdad: escribir "descansa" en el cuadro de
+# texto mientras la conversación seguía activa por voz solo decía la frase
+# de confirmación, pero el micrófono seguía escuchando exactamente igual —
+# cada canal solo sabía cortar SU PROPIA conversación, nunca la de otro.
+end_conversation_event = threading.Event()

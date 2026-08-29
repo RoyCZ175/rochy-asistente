@@ -511,6 +511,11 @@ def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local
         print(f"{config.assistant_name}: {reply} [pausa, sigue abierta]")
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
+        # Sin esto, pedir "descansa" por texto/celular mientras la conversación
+        # seguía activa por VOZ no la cortaba — cada canal solo sabía terminar
+        # SU PROPIA conversación. Esta señal la revisa el bucle de voz para
+        # cortar la suya aunque la orden haya llegado por otro canal.
+        proc.end_conversation_event.set()
         return "end_conversation"
 
     if intent == "reset":
@@ -871,6 +876,12 @@ def _voice_loop(
             # corregido, pero puede volver a pasar con otra palabra) no se
             # podía ni diagnosticar: no había forma de saber qué la disparó.
             print(f"[info] Activada por la palabra clave (coincidió con {matched_on!r}): {heard!r}")
+            # Por si quedó marcada de un "descansa" dicho por otro canal
+            # mientras no había ninguna conversación por voz activa que la
+            # consumiera — sin esto, esta conversación RECIÉN empezada se
+            # cortaría sola en su primera vuelta por una señal que ya no
+            # tiene nada que ver con ella.
+            proc.end_conversation_event.clear()
             voice.speak("Dime.")
 
             # Modo conversación: una vez activado, sigue escuchando turno tras
@@ -891,6 +902,13 @@ def _voice_loop(
             # "bloqueado" varios segundos sin poder decir nada.
             still_there_asked = False
             while not stop_event.is_set():
+                if proc.end_conversation_event.is_set():
+                    # "descansa" pedido desde otro canal (texto/celular)
+                    # mientras esta conversación por voz seguía activa — se
+                    # corta acá aunque la orden no haya llegado por este
+                    # bucle. Se limpia enseguida: es una señal de un solo uso.
+                    proc.end_conversation_event.clear()
+                    break
                 speaking_now = proc.speaking_event.is_set()
                 in_echo_grace = not speaking_now and (
                     time.time() - proc.speech_ended_at < POST_SPEECH_GRACE_SECONDS
