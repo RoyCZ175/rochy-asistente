@@ -371,7 +371,7 @@ def _classify_study_intent(command_text: str):
     return "none", None
 
 
-def _handle_study_intent(command_text: str, voice, lock, stop_event):
+def _handle_study_intent(command_text: str, voice, lock, stop_event, source: str = "voz"):
     """Atiende las órdenes de 'modo estudio' (activar/salir/olvidar). Activar
     puede tardar unos segundos (indexar archivos nuevos), así que se despacha
     a un hilo aparte igual que las peticiones a la IA — nunca bloquea el
@@ -380,7 +380,7 @@ def _handle_study_intent(command_text: str, voice, lock, stop_event):
     if kind == "none":
         return None
 
-    print(f"Tú: {command_text}")
+    print(f"Tú ({source}): {command_text}")
     ui_server.broadcast_transcript("user", command_text)
 
     if kind == "stop":
@@ -471,12 +471,12 @@ def _broadcast_mode() -> None:
     ui_server.broadcast_mode(ai_mode, study_state.get_subject())
 
 
-def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local_brain_ai, voice):
+def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local_brain_ai, voice, source: str = "voz"):
     """Atiende al instante las órdenes de control (salir/pausar/reiniciar/
     cambiar de modo) — ninguna necesita IA, así que nunca tardan. Devuelve el
     estado si aplicó alguna, o None si es charla/tarea normal y debe seguir a
     la IA (la parte que sí puede tardar, y por eso corre aparte)."""
-    print(f"Tú: {command_text}")
+    print(f"Tú ({source}): {command_text}")
     ui_server.broadcast_transcript("user", command_text)
     intent = _classify_control_intent(command_text)
 
@@ -725,11 +725,16 @@ def _should_silently_ignore(command_text: str) -> bool:
     return True
 
 
-def _handle_command(command_text: str, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event) -> str:
-    """Punto de entrada único para un comando de voz o texto. Las órdenes de
-    control (salir/pausar/reiniciar/cambiar de modo) se atienden al instante;
-    todo lo demás (charla, tareas con IA) se despacha a un hilo aparte para
-    que el micrófono/texto sigan activos mientras se genera la respuesta."""
+def _handle_command(
+    command_text: str, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event, source: str = "voz"
+) -> str:
+    """Punto de entrada único para un comando de voz, texto o celular. Las
+    órdenes de control (salir/pausar/reiniciar/cambiar de modo) se atienden
+    al instante; todo lo demás (charla, tareas con IA) se despacha a un hilo
+    aparte para que el micrófono/texto sigan activos mientras se genera la
+    respuesta. "source" (voz/texto/celular) solo es para que rochy.log deje
+    claro de dónde vino cada comando — antes todos se veían igual ("Tú: ..."),
+    lo que hacía imposible saber si algo pasó por voz o si se escribió."""
     if _should_silently_ignore(command_text):
         # Solo queda en la consola/rochy.log para poder diagnosticar (nunca
         # llega al chat visible ni se habla) — es justo lo que antes SÍ se
@@ -737,11 +742,11 @@ def _handle_command(command_text: str, config, brain, gemini_brain_ai, local_bra
         print(f"[info] Ignorado en silencio (procesando otra cosa): {command_text!r}")
         return "handled"
 
-    study_status = _handle_study_intent(command_text, voice, lock, stop_event)
+    study_status = _handle_study_intent(command_text, voice, lock, stop_event, source)
     if study_status is not None:
         return study_status
 
-    fast_status = _handle_fast_intent(command_text, config, brain, gemini_brain_ai, local_brain_ai, voice)
+    fast_status = _handle_fast_intent(command_text, config, brain, gemini_brain_ai, local_brain_ai, voice, source)
     if fast_status is not None:
         return fast_status
 
@@ -774,7 +779,7 @@ def _report_error(voice, exc: Exception) -> None:
     ui_server.broadcast_state("idle")
 
 
-def _handle_cancel_if_requested(text: str, voice) -> bool:
+def _handle_cancel_if_requested(text: str, voice, source: str = "voz") -> bool:
     """Si el texto es una frase de cancelación, responde al instante (sin
     esperar turno) y devuelve True. Si hay algo procesándose de fondo (ej. una
     llamada a Spotify colgada), lo marca para que se abandone en cuanto sea
@@ -782,7 +787,7 @@ def _handle_cancel_if_requested(text: str, voice) -> bool:
     atascado detrás de algo lento."""
     if not _is_cancel(text):
         return False
-    print(f"Tú: {text}")
+    print(f"Tú ({source}): {text}")
     ui_server.broadcast_transcript("user", text)
     if proc.busy_event.is_set():
         proc.cancel_event.set()
@@ -825,7 +830,7 @@ def _voice_loop(
                 if speaking_now:
                     command_text = listener.listen(timeout=1.5, phrase_time_limit=3)
                     if command_text and _is_cancel(command_text):
-                        print(f"Tú: {command_text}")
+                        print(f"Tú (voz): {command_text}")
                         ui_server.broadcast_transcript("user", command_text)
                         voice.stop_speaking()
                         proc.cancel_event.set()
@@ -924,7 +929,7 @@ def _voice_loop(
                     # algo y lo procesó como si el usuario hubiera repetido
                     # la misma pregunta.
                     if _is_cancel(command_text):
-                        print(f"Tú: {command_text}")
+                        print(f"Tú (voz): {command_text}")
                         ui_server.broadcast_transcript("user", command_text)
                         voice.stop_speaking()
                         proc.cancel_event.set()
@@ -973,10 +978,12 @@ def _text_loop(
         text = ui_server.get_text_command(timeout=1.0)
         if text is None:
             continue
-        if _handle_cancel_if_requested(text, voice):
+        if _handle_cancel_if_requested(text, voice, source="texto"):
             continue
         try:
-            status = _handle_command(text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event)
+            status = _handle_command(
+                text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event, source="texto"
+            )
             if status == "exit":
                 stop_event.set()
         except Exception as exc:
@@ -998,10 +1005,12 @@ def _remote_audio_loop(
         text = listener.transcribe_bytes(audio_bytes, mime)
         if not text:
             continue
-        if _handle_cancel_if_requested(text, voice):
+        if _handle_cancel_if_requested(text, voice, source="celular"):
             continue
         try:
-            status = _handle_command(text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event)
+            status = _handle_command(
+                text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event, source="celular"
+            )
             if status == "exit":
                 stop_event.set()
         except Exception as exc:
