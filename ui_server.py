@@ -1,21 +1,35 @@
 """Servidor WebSocket local: transmite el estado del asistente (idle/listening/
 thinking/speaking) y el transcript de la conversación a la interfaz, y recibe
-de vuelta los comandos escritos desde el cuadro de texto de la interfaz."""
+de vuelta los comandos escritos desde el cuadro de texto de la interfaz (o de
+audio grabado desde el celular usado como micrófono remoto, ver remote.html).
+
+HOST está en 0.0.0.0 (todas las interfaces) a propósito, no "localhost" — para
+que el celular, en la misma red WiFi, pueda conectarse también. Esto expone el
+servidor a quien esté en esa red local (puede mandarle comandos a Rochy, que
+controla el PC de verdad) — aceptable en una red doméstica de confianza, pero
+vale saberlo: no hay autenticación."""
 
 import asyncio
+import base64
+import http.server
 import json
+import os
 import queue
+import socket
 import threading
 
 import websockets
 
-HOST = "localhost"
+HOST = "0.0.0.0"
 PORT = 8765
+HTTP_PORT = 8766
+INTERFACE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "interface")
 
 _loop = None
 _clients = set()
 _ready = threading.Event()
 _text_queue: "queue.Queue[str]" = queue.Queue()
+_audio_queue: "queue.Queue[tuple[bytes, str]]" = queue.Queue()
 
 
 async def _handler(websocket):
@@ -28,6 +42,13 @@ async def _handler(websocket):
                 continue
             if data.get("type") == "text_command" and data.get("text", "").strip():
                 _text_queue.put(data["text"].strip())
+            elif data.get("type") == "audio_command" and data.get("audio"):
+                try:
+                    audio_bytes = base64.b64decode(data["audio"])
+                except (ValueError, TypeError):
+                    continue
+                mime = data.get("mime", "audio/webm")
+                _audio_queue.put((audio_bytes, mime))
     finally:
         _clients.discard(websocket)
 
@@ -41,16 +62,50 @@ async def _main() -> None:
 
 
 def start() -> None:
-    """Arranca el servidor en un hilo de fondo. No bloquea."""
+    """Arranca el servidor WebSocket en un hilo de fondo. No bloquea."""
     thread = threading.Thread(target=lambda: asyncio.run(_main()), daemon=True)
     thread.start()
     _ready.wait(timeout=5)
+
+
+def start_http() -> None:
+    """Sirve la carpeta interface/ por HTTP normal (no WebSocket) para que el
+    celular pueda abrir remote.html desde su navegador — pywebview solo sirve
+    la ventana de escritorio, no es alcanzable desde otro dispositivo."""
+    handler = lambda *args, **kwargs: http.server.SimpleHTTPRequestHandler(
+        *args, directory=INTERFACE_DIR, **kwargs
+    )
+    server = http.server.ThreadingHTTPServer((HOST, HTTP_PORT), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+
+def get_lan_ip() -> str:
+    """IP de este PC dentro de la red local (la que hay que escribir en el
+    navegador del celular) — no manda datos de verdad, solo usa el truco de
+    abrir un socket UDP para que el sistema operativo resuelva sola cuál es
+    la interfaz de red real (no la de loopback)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
 
 
 def get_text_command(timeout: float = 1.0):
     """Devuelve el próximo comando escrito por el usuario, o None si no llegó ninguno."""
     try:
         return _text_queue.get(timeout=timeout)
+    except queue.Empty:
+        return None
+
+
+def get_audio_command(timeout: float = 1.0):
+    """Devuelve (audio_bytes, mime) del próximo audio grabado desde el
+    micrófono remoto (celular), o None si no llegó ninguno."""
+    try:
+        return _audio_queue.get(timeout=timeout)
     except queue.Empty:
         return None
 

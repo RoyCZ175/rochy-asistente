@@ -916,6 +916,31 @@ def _text_loop(
             _report_error(voice, exc)
 
 
+def _remote_audio_loop(
+    config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock: threading.Lock, stop_event: threading.Event
+) -> None:
+    """Atiende el audio grabado desde el celular usado como micrófono remoto
+    (ver ui_server.py/remote.html) — un botón de "mantén presionado para
+    hablar" ahí, así que igual que escribir, esto tampoco necesita la
+    palabra clave: apretar el botón YA es la acción explícita del usuario."""
+    while not stop_event.is_set():
+        item = ui_server.get_audio_command(timeout=1.0)
+        if item is None:
+            continue
+        audio_bytes, mime = item
+        text = listener.transcribe_bytes(audio_bytes, mime)
+        if not text:
+            continue
+        if _handle_cancel_if_requested(text, voice):
+            continue
+        try:
+            status = _handle_command(text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event)
+            if status == "exit":
+                stop_event.set()
+        except Exception as exc:
+            _report_error(voice, exc)
+
+
 def _assistant_loop(window) -> None:
     """Arranca ambos canales de entrada (voz y texto) y corre hasta que uno
     de los dos reciba una orden de salir."""
@@ -967,6 +992,13 @@ def _assistant_loop(window) -> None:
         target=_text_loop, args=(config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event), daemon=True
     )
     text_thread.start()
+
+    remote_audio_thread = threading.Thread(
+        target=_remote_audio_loop,
+        args=(config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock, stop_event),
+        daemon=True,
+    )
+    remote_audio_thread.start()
 
     _voice_loop(config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock, stop_event)
 
@@ -1020,6 +1052,12 @@ def run() -> None:
     import ui_bridge
 
     ui_server.start()
+    ui_server.start_http()
+    lan_ip = ui_server.get_lan_ip()
+    print(
+        f"Micrófono remoto: abre http://{lan_ip}:{ui_server.HTTP_PORT}/remote.html "
+        f"desde el navegador de tu celular (misma red WiFi)."
+    )
     window = webview.create_window(
         assistant_name,
         INTERFACE_PATH,

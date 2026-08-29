@@ -110,3 +110,29 @@ class SpeechListener:
         except Exception:
             return ""
         return (result.text or "").strip()
+
+    def transcribe_bytes(self, audio_bytes: bytes, mime: str = "audio/webm") -> str:
+        """Transcribe audio grabado por fuera de este micrófono — el celular
+        usado como micrófono remoto (ver ui_server.py/remote.html) graba con
+        el códec que le dé su navegador (webm/opus en Android, mp4/aac en
+        iPhone) y lo manda ya comprimido. Groq Whisper acepta esos formatos
+        directamente, sin convertir a PCM primero — a propósito solo nube: el
+        motor local (Vosk) necesita audio crudo sin comprimir, y descomprimir
+        webm/mp4 sin ffmpeg de por medio es una complicación aparte que no
+        vale la pena para este camino secundario (el micrófono normal de la
+        PC sigue teniendo su respaldo local de siempre)."""
+        if not connectivity.is_online():
+            return ""
+        ext = mime.split("/")[-1].split(";")[0] or "webm"
+        buffer = io.BytesIO(audio_bytes)
+        buffer.name = f"audio.{ext}"
+        try:
+            result = self.client.audio.transcriptions.create(
+                file=buffer,
+                model=self.model,
+                language=self.language,
+            )
+        except Exception as exc:
+            print(f"[info] No pude transcribir el audio del micrófono remoto: {exc!r}")
+            return ""
+        return (result.text or "").strip()
