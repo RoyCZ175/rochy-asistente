@@ -174,23 +174,35 @@ def _sounds_like_self_echo(heard_text: str) -> bool:
 
 
 # Qué tan parecida (0 a 1) tiene que ser una palabra oída a la palabra clave
-# para aceptarla igual, aunque Whisper la haya transcrito distinto ("Rochi",
-# "Rocha") en vez de exigir la ortografía exacta configurada.
-WAKE_WORD_SIMILARITY = 0.75
+# para aceptarla igual, aunque Whisper la haya transcrito distinto ("ola", sin
+# la hache muda) en vez de exigir la ortografía exacta configurada.
+#
+# 0.75 (el valor original) resultó ser demasiado permisivo — se comprobó de
+# verdad que palabras comunes del español coinciden por accidente con "hola"
+# a exactamente esa similitud: "hora", "sola", "cola", "bola", "olla", "hala".
+# Con ruido de fondo (una tele, alguien más hablando) que solo tenga que
+# mencionar la HORA para activar a Rochy sin que nadie le hablara a propósito
+# — y peor, lo que se transcriba después de eso se procesa como si fuera un
+# pedido real. Subido a 0.80: sigue agarrando "ola" (0.86, la variante real
+# más común, sin la hache) pero ya no esas palabras comunes (todas en 0.75).
+WAKE_WORD_SIMILARITY = 0.80
 
 
-def _sounds_like_wake_word(heard_text: str, wake_word: str) -> bool:
+def _sounds_like_wake_word(heard_text: str, wake_word: str) -> tuple[bool, str | None]:
     """Coincidencia exacta primero (rápido); si no, compara palabra por
     palabra por si la transcripción varió fonéticamente en vez de perder
-    activaciones reales solo por una letra distinta."""
+    activaciones reales solo por una letra distinta. Devuelve además CON QUÉ
+    coincidió (o None) para poder dejarlo registrado — antes una activación
+    por parecido fonético no dejaba ningún rastro de qué fue lo que "sonó
+    parecido a hola", solo lo rechazado quedaba en el log."""
     wake_norm = _normalize_text(wake_word)
     heard_norm = _normalize_text(heard_text)
     if wake_norm in heard_norm:
-        return True
-    return any(
-        difflib.SequenceMatcher(None, word, wake_norm).ratio() >= WAKE_WORD_SIMILARITY
-        for word in re.findall(r"[a-z]+", heard_norm)
-    )
+        return True, heard_text
+    for word in re.findall(r"[a-z]+", heard_norm):
+        if difflib.SequenceMatcher(None, word, wake_norm).ratio() >= WAKE_WORD_SIMILARITY:
+            return True, word
+    return False, None
 
 
 def _normalize_text(text: str) -> str:
@@ -844,7 +856,8 @@ def _voice_loop(
             heard = listener.listen(timeout=5, phrase_time_limit=4)
             if not heard:
                 continue
-            if not _sounds_like_wake_word(heard, config.wake_word):
+            matched, matched_on = _sounds_like_wake_word(heard, config.wake_word)
+            if not matched:
                 # Antes esto era completamente silencioso — si el micrófono
                 # oía algo pero no coincidía con la palabra clave, no quedaba
                 # ni rastro para saber por qué (¿transcribió mal? ¿oyó otra
@@ -852,6 +865,12 @@ def _voice_loop(
                 print(f"[info] Oí algo pero no coincide con la palabra clave '{config.wake_word}': {heard!r}")
                 continue
 
+            # Registra también las activaciones que SÍ pasaron — antes esto no
+            # dejaba rastro alguno, así que una activación por parecido
+            # fonético con ruido de fondo (ej. "hora" en vez de "hola", ya
+            # corregido, pero puede volver a pasar con otra palabra) no se
+            # podía ni diagnosticar: no había forma de saber qué la disparó.
+            print(f"[info] Activada por la palabra clave (coincidió con {matched_on!r}): {heard!r}")
             voice.speak("Dime.")
 
             # Modo conversación: una vez activado, sigue escuchando turno tras
