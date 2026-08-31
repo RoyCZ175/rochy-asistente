@@ -237,6 +237,14 @@ def broadcast_mode(ai_mode: str, study_subject) -> None:
     _broadcast({"type": "mode_update", "ai_mode": ai_mode, "study_subject": study_subject})
 
 
+def broadcast_quality(level: str) -> None:
+    """Le avisa a la interfaz el nivel de calidad de respuesta actual (ver
+    mode_state.get_quality()/set_quality()) — así un selector en la interfaz
+    se mantiene sincronizado aunque el cambio haya llegado por voz u otro
+    canal, en vez de solo confiar en lo último que el propio usuario clickeó."""
+    _broadcast({"type": "quality_update", "level": level})
+
+
 def broadcast_remote_control(active: bool) -> None:
     """Le avisa a la interfaz si el 'control remoto' (micrófono del celular
     como entrada principal) está activo, para reflejarlo en el botón/card

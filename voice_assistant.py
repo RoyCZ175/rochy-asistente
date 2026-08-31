@@ -30,9 +30,8 @@ import sound_cues
 import study_rag
 import study_state
 import system_control as sc
+import ui_rochy_server
 import ui_server
-
-INTERFACE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "interface", "index.html")
 
 
 def parse_command(text: str):
@@ -614,6 +613,7 @@ def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local
         print(f"{config.assistant_name}: {reply} [calidad = {level}]")
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
+        ui_server.broadcast_quality(level)
         return "handled"
 
     return None
@@ -1223,9 +1223,16 @@ def run() -> None:
         f"autofirmado — el navegador va a avisar que no es seguro la primera vez, "
         f"elegí \"Avanzado\" / \"Continuar de todas formas\", es esperado."
     )
+    # UI-ROCHY (otra carpeta/proyecto) es la interfaz de escritorio — se sirve
+    # por HTTP local (ver ui_rochy_server.py) porque sus scripts son módulos
+    # de JavaScript, que no cargan sobre file://.
+    interface_url = ui_rochy_server.start()
+    if interface_url is None:
+        print("No se encontró la interfaz (UI-ROCHY) en esta PC. No se puede abrir la ventana.")
+        return
     window = webview.create_window(
         assistant_name,
-        INTERFACE_PATH,
+        interface_url,
         width=1080,
         height=820,
         background_color="#05060b",
