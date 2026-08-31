@@ -96,6 +96,56 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "media_play_pause",
+            "description": (
+                "Pausa o reanuda lo que se esté reproduciendo ahora mismo (YouTube, Spotify, "
+                "cualquier reproductor) — funciona sin importar qué ventana tenga el foco."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_next_track",
+            "description": "Pasa a la siguiente pista o video en el reproductor activo.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_previous_track",
+            "description": "Vuelve a la pista o video anterior en el reproductor activo.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_seek",
+            "description": (
+                "Adelanta o atrasa el video que se está viendo AHORA en pantalla (ej. YouTube). "
+                "Solo funciona si esa ventana/pestaña tiene el foco en este momento."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"direction": {"type": "string", "enum": ["adelante", "atras"]}},
+                "required": ["direction"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "close_active_tab",
+            "description": "Cierra la pestaña o ventana que está activa/al frente en este momento (Ctrl+W).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "set_brightness",
             "description": (
                 "Fija el brillo de la pantalla a un porcentaje exacto (0-100). Solo funciona con la "
@@ -808,6 +858,11 @@ def build_tool_functions(config) -> dict:
         "set_volume": lambda args: sc.set_volume(args["level"]),
         "volume_step": lambda args: sc.volume_step(args["direction"], args.get("steps", 10)),
         "mute_toggle": lambda args: sc.mute_toggle(),
+        "media_play_pause": lambda args: sc.media_play_pause(),
+        "media_next_track": lambda args: sc.media_next_track(),
+        "media_previous_track": lambda args: sc.media_previous_track(),
+        "media_seek": lambda args: sc.media_seek(args["direction"]),
+        "close_active_tab": lambda args: sc.close_active_tab(),
         "set_brightness": lambda args: sc.set_brightness(args["level"]),
         "brightness_step": lambda args: sc.brightness_step(args["direction"], args.get("steps", 10)),
         "set_wifi": lambda args: sc.set_wifi(args["enabled"]),
