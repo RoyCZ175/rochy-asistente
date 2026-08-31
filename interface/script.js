@@ -14,6 +14,11 @@ const STATE_LABELS = {
 function setState(name) {
   if (!STATE_LABELS[name]) return;
   orb.setState(name);
+  if (name === 'thinking') {
+    showTypingIndicator();
+  } else {
+    hideTypingIndicator();
+  }
   if (name === 'idle') {
     // "En línea" a secas estaba mal aquí: pisaba el texto correcto (modo
     // local, o la materia de estudio activa) cada vez que volvía a idle,
@@ -29,7 +34,27 @@ function setState(name) {
 
 // --- Transcript ---
 const log = document.getElementById('log');
+
+// Burbuja de "escribiendo…" (tres puntos animados) mientras Rochy procesa —
+// así se ve de inmediato que algo está pasando, en vez de quedar el chat
+// quieto hasta que la respuesta ya está lista.
+let typingBubbleEl = null;
+function showTypingIndicator() {
+  if (typingBubbleEl) return;
+  typingBubbleEl = document.createElement('div');
+  typingBubbleEl.className = 'bubble assistant typing';
+  typingBubbleEl.innerHTML = '<span></span><span></span><span></span>';
+  log.appendChild(typingBubbleEl);
+  log.scrollTop = log.scrollHeight;
+}
+function hideTypingIndicator() {
+  if (!typingBubbleEl) return;
+  typingBubbleEl.remove();
+  typingBubbleEl = null;
+}
+
 function addBubble(role, text) {
+  hideTypingIndicator();
   const div = document.createElement('div');
   div.className = 'bubble ' + (role === 'user' ? 'user' : 'assistant');
   div.textContent = text;
@@ -128,7 +153,6 @@ sendBtn.addEventListener('click', sendText);
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendText();
 });
-document.getElementById('micBtn').addEventListener('click', () => input.focus());
 
 function sendControl(text) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;

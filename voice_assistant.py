@@ -541,7 +541,17 @@ def _generate_response(command_text: str, config, brain, gemini_brain_ai, local_
         # sin fragmentos, la IA no tenía ninguna pista de que seguía en modo
         # estudio y llegó a negarlo ("no estoy en modo estudio") estando
         # activo de verdad, porque nunca se le dijo.
-        chunks = study_rag.search(subject, command_text)
+        try:
+            chunks = study_rag.search(subject, command_text)
+        except Exception as exc:
+            # Un fallo cargando el modelo de embeddings (ej. una DLL de torch
+            # que no cargó a tiempo) no debe tumbar la respuesta ENTERA — esto
+            # pasó de verdad: con modo estudio activo, hasta preguntas sin
+            # ninguna relación con la materia dejaron de responderse por
+            # completo. Sin apuntes disponibles, seguimos igual que si
+            # búsqueda no hubiera encontrado nada.
+            print(f"[aviso] Modo estudio: no se pudo buscar en los apuntes ({exc}), sigo sin ese contexto.")
+            chunks = []
         if chunks:
             context_block = "\n\n".join(f"- {c}" for c in chunks)
             ai_input = (
