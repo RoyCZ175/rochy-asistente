@@ -166,6 +166,13 @@ async def _handler(websocket):
                     continue
                 mime = data.get("mime", "audio/webm")
                 _audio_queue.put((audio_bytes, mime))
+            elif data.get("type") == "gesture_event" and data.get("label"):
+                # Lo manda el proyecto aparte de control por gestos (carpeta
+                # gestos_control, otro microservicio, se conecta acá como un
+                # cliente WebSocket más). No es una orden para la IA — solo se
+                # reenvía a la interfaz para mostrar qué gesto se detectó.
+                print(f"[gesto] {data['label']}")
+                _broadcast({"type": "gesture_event", "label": data["label"]})
     finally:
         _clients.discard(websocket)
 

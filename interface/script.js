@@ -125,6 +125,10 @@ function connect() {
       // orbe lo usa para crecer/encoger siguiendo los altos y bajos de
       // verdad mientras habla.
       orb.setVoiceEnvelope(data.envelope, data.step_ms);
+    } else if (data.type === 'gesture_event' && data.label) {
+      // Viene del proyecto aparte de control por gestos (gestos_control),
+      // conectado como cliente WebSocket — solo se muestra, no pasa por la IA.
+      addBubble('assistant', '🖐️ ' + data.label);
     }
   };
 }
