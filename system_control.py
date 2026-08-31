@@ -15,7 +15,6 @@ from datetime import datetime
 
 import keyboard as kb
 import pyautogui
-from winrt.windows.devices.radios import Radio, RadioState
 
 pyautogui.FAILSAFE = True  # mover el mouse a una esquina aborta cualquier acción en curso
 
@@ -241,11 +240,23 @@ def brightness_step(direction: str, steps: int = 10) -> str:
 
 
 async def _find_radio(name: str):
+    # Importado aquí adentro (no al inicio del archivo) a propósito: WinRT
+    # carga varias DLLs nativas propias, y sumarlas a TODAS las que ya carga
+    # el proceso completo de Rochy (PyTorch del modo estudio, audio, gRPC de
+    # Gemini, etc.) puede empujar a Windows contra su límite de DLLs con TLS
+    # por proceso — visto de verdad: el modo estudio se rompió con un error
+    # de carga de PyTorch justo después de usar WiFi/Bluetooth. Importar
+    # WinRT solo cuando de verdad se usa reduce cuántas de esas DLLs quedan
+    # cargadas todo el tiempo que Rochy está abierta.
+    from winrt.windows.devices.radios import Radio
+
     radios = await Radio.get_radios_async()
     return next((r for r in radios if r.name == name), None)
 
 
 async def _set_radio_state(name: str, enabled: bool) -> bool:
+    from winrt.windows.devices.radios import RadioState
+
     radio = await _find_radio(name)
     if radio is None:
         return False

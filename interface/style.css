@@ -335,6 +335,16 @@ body.mode-local #modeGlow::after { background: radial-gradient(circle, #ff3d5a, 
 .card.purple .cardIcon { background: linear-gradient(135deg, #b347ff2e, #b347ff10); color: var(--purple); box-shadow: 0 0 12px #b347ff2e; }
 .card.orange .cardIcon { background: linear-gradient(135deg, #ff99002e, #ff990010); color: var(--orange); box-shadow: 0 0 12px #ff99002e; }
 .card.pink   .cardIcon { background: linear-gradient(135deg, #ff2f9e2e, #ff2f9e10); color: var(--pink);   box-shadow: 0 0 12px #ff2f9e2e; }
+.card.green  .cardIcon { background: linear-gradient(135deg, #3dffa02e, #3dffa010); color: var(--green);  box-shadow: 0 0 12px #3dffa02e; }
+/* Cuando el control remoto está activo, el borde late suave en verde para
+   que sea obvio de un vistazo que la PC ya no está escuchando por su cuenta. */
+.card.remoteActive {
+  animation: spinBorder 8s linear infinite, remotePulse 1.8s ease-in-out infinite;
+}
+@keyframes remotePulse {
+  0%, 100% { box-shadow: 0 0 0 0 #3dffa000; }
+  50% { box-shadow: 0 0 18px 2px #3dffa055; }
+}
 
 /* ================= Ventana flotante (modal) =================
    Reemplaza los alert()/prompt() nativos del navegador (se veían feos,

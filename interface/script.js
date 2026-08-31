@@ -119,6 +119,9 @@ function connect() {
       updateStatusBar();
     } else if (data.type === 'open_file_picker' && data.subject) {
       openFilePicker(data.subject);
+    } else if (data.type === 'remote_control_update') {
+      currentRemoteControl = !!data.active;
+      updateRemoteControlUI();
     } else if (data.type === 'voice_envelope') {
       // Volumen real de la voz que está a punto de sonar (ver tts.py) — el
       // orbe lo usa para crecer/encoger siguiendo los altos y bajos de
@@ -165,6 +168,22 @@ document.getElementById('brandBtn').addEventListener('click', () => sendControl(
 
 document.getElementById('modeBtn').addEventListener('click', () => {
   sendControl(currentAiMode === 'local' ? 'modo online' : 'modo local');
+});
+
+// --- Control remoto (micrófono del celular) ---
+let currentRemoteControl = false;
+function updateRemoteControlUI() {
+  const card = document.getElementById('remoteBtn');
+  const title = document.getElementById('remoteBtnTitle');
+  const sub = document.getElementById('remoteBtnSub');
+  card.classList.toggle('remoteActive', currentRemoteControl);
+  title.textContent = currentRemoteControl ? 'Control remoto activo' : 'Control remoto';
+  sub.textContent = currentRemoteControl
+    ? 'La PC ya no escucha sola — usa el celular'
+    : 'Usa el celular como micrófono';
+}
+document.getElementById('remoteBtn').addEventListener('click', () => {
+  sendControl(currentRemoteControl ? 'desactiva el control remoto' : 'activa el control remoto');
 });
 
 document.getElementById('uploadBtn').addEventListener('click', () => {

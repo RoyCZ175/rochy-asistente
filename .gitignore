@@ -14,3 +14,4 @@ google_token.json
 rochy.log
 vosk_model_es/
 creation_log.json
+.remote_cert/

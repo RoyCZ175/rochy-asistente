@@ -174,23 +174,35 @@ def _sounds_like_self_echo(heard_text: str) -> bool:
 
 
 # Qué tan parecida (0 a 1) tiene que ser una palabra oída a la palabra clave
-# para aceptarla igual, aunque Whisper la haya transcrito distinto ("Rochi",
-# "Rocha") en vez de exigir la ortografía exacta configurada.
-WAKE_WORD_SIMILARITY = 0.75
+# para aceptarla igual, aunque Whisper la haya transcrito distinto ("ola", sin
+# la hache muda) en vez de exigir la ortografía exacta configurada.
+#
+# 0.75 (el valor original) resultó ser demasiado permisivo — se comprobó de
+# verdad que palabras comunes del español coinciden por accidente con "hola"
+# a exactamente esa similitud: "hora", "sola", "cola", "bola", "olla", "hala".
+# Con ruido de fondo (una tele, alguien más hablando) que solo tenga que
+# mencionar la HORA para activar a Rochy sin que nadie le hablara a propósito
+# — y peor, lo que se transcriba después de eso se procesa como si fuera un
+# pedido real. Subido a 0.80: sigue agarrando "ola" (0.86, la variante real
+# más común, sin la hache) pero ya no esas palabras comunes (todas en 0.75).
+WAKE_WORD_SIMILARITY = 0.80
 
 
-def _sounds_like_wake_word(heard_text: str, wake_word: str) -> bool:
+def _sounds_like_wake_word(heard_text: str, wake_word: str) -> tuple[bool, str | None]:
     """Coincidencia exacta primero (rápido); si no, compara palabra por
     palabra por si la transcripción varió fonéticamente en vez de perder
-    activaciones reales solo por una letra distinta."""
+    activaciones reales solo por una letra distinta. Devuelve además CON QUÉ
+    coincidió (o None) para poder dejarlo registrado — antes una activación
+    por parecido fonético no dejaba ningún rastro de qué fue lo que "sonó
+    parecido a hola", solo lo rechazado quedaba en el log."""
     wake_norm = _normalize_text(wake_word)
     heard_norm = _normalize_text(heard_text)
     if wake_norm in heard_norm:
-        return True
-    return any(
-        difflib.SequenceMatcher(None, word, wake_norm).ratio() >= WAKE_WORD_SIMILARITY
-        for word in re.findall(r"[a-z]+", heard_norm)
-    )
+        return True, heard_text
+    for word in re.findall(r"[a-z]+", heard_norm):
+        if difflib.SequenceMatcher(None, word, wake_norm).ratio() >= WAKE_WORD_SIMILARITY:
+            return True, word
+    return False, None
 
 
 def _normalize_text(text: str) -> str:
@@ -214,7 +226,7 @@ def _has_word_starting_with(text: str, *roots: str) -> bool:
 OTHER_TARGET_WORDS = (
     "wifi", "wi-fi", "online", "internet", "volumen", "modo", "notificacion",
     "pantalla", "luz", "bluetooth", "brillo", "sonido", "microfono", "camara",
-    "bateria", "avion",
+    "bateria", "avion", "remoto",
 )
 
 
@@ -230,12 +242,28 @@ FORCE_ONLINE_PHRASES = (
     "usa groq", "vuelve a la nube", "usa el modelo grande",
 )
 
+# Frases para pasar al "control remoto" (micrófono del celular como entrada
+# principal, ver interface/remote.html) y su contraparte para volver al
+# micrófono normal de la PC. Ojo: NO se usa "modo normal" aquí — esa frase ya
+# significa "vuelve a la nube" arriba (FORCE_ONLINE_PHRASES); usar la misma
+# frase para dos cosas distintas sería ambiguo.
+REMOTE_CONTROL_ON_PHRASES = (
+    "control remoto", "activa el control remoto", "modo control remoto",
+    "pasa a control remoto", "usa el celular como microfono",
+)
+REMOTE_CONTROL_OFF_PHRASES = (
+    "desactiva el control remoto", "sal del control remoto",
+    "termina el control remoto", "apaga el control remoto",
+    "deja el control remoto", "vuelve al microfono normal",
+)
+
 
 def _classify_control_intent(command_text: str) -> str:
     """Detecta frases de control (salir/pausar/reiniciar/modo local) tolerando
     variaciones de conjugación, acentos y palabras de más alrededor — no exige
     una coincidencia exacta con una frase fija. Devuelve 'exit',
-    'end_conversation', 'reset', 'force_local', 'force_online' o 'none'."""
+    'end_conversation', 'reset', 'force_local', 'force_online',
+    'remote_control_on', 'remote_control_off' o 'none'."""
     text = _normalize_text(command_text)
     targets_something_else = any(word in text for word in OTHER_TARGET_WORDS)
 
@@ -272,6 +300,14 @@ def _classify_control_intent(command_text: str) -> str:
         return "force_local"
     if is_short_command and any(p in text for p in FORCE_ONLINE_PHRASES):
         return "force_online"
+
+    # OFF se revisa antes que ON a propósito: "desactiva el control remoto"
+    # también contiene la subcadena "control remoto" (la frase de ON), así
+    # que si se revisara ON primero nunca se llegaría a detectar el OFF.
+    if is_short_command and any(p in text for p in REMOTE_CONTROL_OFF_PHRASES):
+        return "remote_control_off"
+    if is_short_command and any(p in text for p in REMOTE_CONTROL_ON_PHRASES):
+        return "remote_control_on"
 
     return "none"
 
@@ -347,7 +383,7 @@ def _classify_study_intent(command_text: str):
     return "none", None
 
 
-def _handle_study_intent(command_text: str, voice, lock, stop_event):
+def _handle_study_intent(command_text: str, voice, lock, stop_event, source: str = "voz"):
     """Atiende las órdenes de 'modo estudio' (activar/salir/olvidar). Activar
     puede tardar unos segundos (indexar archivos nuevos), así que se despacha
     a un hilo aparte igual que las peticiones a la IA — nunca bloquea el
@@ -356,7 +392,7 @@ def _handle_study_intent(command_text: str, voice, lock, stop_event):
     if kind == "none":
         return None
 
-    print(f"Tú: {command_text}")
+    print(f"Tú ({source}): {command_text}")
     ui_server.broadcast_transcript("user", command_text)
 
     if kind == "stop":
@@ -447,12 +483,12 @@ def _broadcast_mode() -> None:
     ui_server.broadcast_mode(ai_mode, study_state.get_subject())
 
 
-def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local_brain_ai, voice):
+def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local_brain_ai, voice, source: str = "voz"):
     """Atiende al instante las órdenes de control (salir/pausar/reiniciar/
     cambiar de modo) — ninguna necesita IA, así que nunca tardan. Devuelve el
     estado si aplicó alguna, o None si es charla/tarea normal y debe seguir a
     la IA (la parte que sí puede tardar, y por eso corre aparte)."""
-    print(f"Tú: {command_text}")
+    print(f"Tú ({source}): {command_text}")
     ui_server.broadcast_transcript("user", command_text)
     intent = _classify_control_intent(command_text)
 
@@ -475,6 +511,11 @@ def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local
         print(f"{config.assistant_name}: {reply} [pausa, sigue abierta]")
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
+        # Sin esto, pedir "descansa" por texto/celular mientras la conversación
+        # seguía activa por VOZ no la cortaba — cada canal solo sabía terminar
+        # SU PROPIA conversación. Esta señal la revisa el bucle de voz para
+        # cortar la suya aunque la orden haya llegado por otro canal.
+        proc.end_conversation_event.set()
         return "end_conversation"
 
     if intent == "reset":
@@ -510,6 +551,28 @@ def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
         _broadcast_mode()
+        return "handled"
+
+    if intent == "remote_control_on":
+        mode_state.set_remote_control(True)
+        reply = (
+            "Listo, control remoto activado. Ya no escucho la palabra clave en la PC — "
+            "usa el celular para hablarme. Si estoy hablando, puedes decir 'espera' o "
+            "'cancela' y te sigo escuchando para eso."
+        )
+        print(f"{config.assistant_name}: {reply} [control remoto activado]")
+        voice.speak(reply)
+        ui_server.broadcast_transcript("assistant", reply)
+        ui_server.broadcast_remote_control(True)
+        return "handled"
+
+    if intent == "remote_control_off":
+        mode_state.set_remote_control(False)
+        reply = "Listo, vuelvo a escuchar la palabra clave normalmente en la PC."
+        print(f"{config.assistant_name}: {reply} [control remoto desactivado]")
+        voice.speak(reply)
+        ui_server.broadcast_transcript("assistant", reply)
+        ui_server.broadcast_remote_control(False)
         return "handled"
 
     return None
@@ -689,11 +752,16 @@ def _should_silently_ignore(command_text: str) -> bool:
     return True
 
 
-def _handle_command(command_text: str, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event) -> str:
-    """Punto de entrada único para un comando de voz o texto. Las órdenes de
-    control (salir/pausar/reiniciar/cambiar de modo) se atienden al instante;
-    todo lo demás (charla, tareas con IA) se despacha a un hilo aparte para
-    que el micrófono/texto sigan activos mientras se genera la respuesta."""
+def _handle_command(
+    command_text: str, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event, source: str = "voz"
+) -> str:
+    """Punto de entrada único para un comando de voz, texto o celular. Las
+    órdenes de control (salir/pausar/reiniciar/cambiar de modo) se atienden
+    al instante; todo lo demás (charla, tareas con IA) se despacha a un hilo
+    aparte para que el micrófono/texto sigan activos mientras se genera la
+    respuesta. "source" (voz/texto/celular) solo es para que rochy.log deje
+    claro de dónde vino cada comando — antes todos se veían igual ("Tú: ..."),
+    lo que hacía imposible saber si algo pasó por voz o si se escribió."""
     if _should_silently_ignore(command_text):
         # Solo queda en la consola/rochy.log para poder diagnosticar (nunca
         # llega al chat visible ni se habla) — es justo lo que antes SÍ se
@@ -701,11 +769,11 @@ def _handle_command(command_text: str, config, brain, gemini_brain_ai, local_bra
         print(f"[info] Ignorado en silencio (procesando otra cosa): {command_text!r}")
         return "handled"
 
-    study_status = _handle_study_intent(command_text, voice, lock, stop_event)
+    study_status = _handle_study_intent(command_text, voice, lock, stop_event, source)
     if study_status is not None:
         return study_status
 
-    fast_status = _handle_fast_intent(command_text, config, brain, gemini_brain_ai, local_brain_ai, voice)
+    fast_status = _handle_fast_intent(command_text, config, brain, gemini_brain_ai, local_brain_ai, voice, source)
     if fast_status is not None:
         return fast_status
 
@@ -738,7 +806,7 @@ def _report_error(voice, exc: Exception) -> None:
     ui_server.broadcast_state("idle")
 
 
-def _handle_cancel_if_requested(text: str, voice) -> bool:
+def _handle_cancel_if_requested(text: str, voice, source: str = "voz") -> bool:
     """Si el texto es una frase de cancelación, responde al instante (sin
     esperar turno) y devuelve True. Si hay algo procesándose de fondo (ej. una
     llamada a Spotify colgada), lo marca para que se abandone en cuanto sea
@@ -746,7 +814,7 @@ def _handle_cancel_if_requested(text: str, voice) -> bool:
     atascado detrás de algo lento."""
     if not _is_cancel(text):
         return False
-    print(f"Tú: {text}")
+    print(f"Tú ({source}): {text}")
     ui_server.broadcast_transcript("user", text)
     if proc.busy_event.is_set():
         proc.cancel_event.set()
@@ -777,12 +845,34 @@ def _voice_loop(
 ) -> None:
     while not stop_event.is_set():
         try:
+            if mode_state.is_remote_control():
+                # El celular (botón de mantener presionado) es la entrada
+                # principal en este modo — no hace falta detectar la palabra
+                # clave en la PC. El único caso en que el micrófono de la PC
+                # sigue vivo es mientras Rochy habla, y solo para poder
+                # cortarla (ver CANCEL_PHRASES) — eso nunca se desactiva, sin
+                # importar el modo.
+                speaking_now = proc.speaking_event.is_set()
+                ui_server.broadcast_state("speaking" if speaking_now else "idle")
+                if speaking_now:
+                    command_text = listener.listen(timeout=1.5, phrase_time_limit=3)
+                    if command_text and _is_cancel(command_text):
+                        print(f"Tú (voz): {command_text}")
+                        ui_server.broadcast_transcript("user", command_text)
+                        voice.stop_speaking()
+                        proc.cancel_event.set()
+                        ui_server.broadcast_transcript("assistant", "[interrumpido]")
+                else:
+                    time.sleep(0.3)
+                continue
+
             ui_server.broadcast_state("idle")
             _wait_while_speaking(stop_event)
             heard = listener.listen(timeout=5, phrase_time_limit=4)
             if not heard:
                 continue
-            if not _sounds_like_wake_word(heard, config.wake_word):
+            matched, matched_on = _sounds_like_wake_word(heard, config.wake_word)
+            if not matched:
                 # Antes esto era completamente silencioso — si el micrófono
                 # oía algo pero no coincidía con la palabra clave, no quedaba
                 # ni rastro para saber por qué (¿transcribió mal? ¿oyó otra
@@ -790,6 +880,18 @@ def _voice_loop(
                 print(f"[info] Oí algo pero no coincide con la palabra clave '{config.wake_word}': {heard!r}")
                 continue
 
+            # Registra también las activaciones que SÍ pasaron — antes esto no
+            # dejaba rastro alguno, así que una activación por parecido
+            # fonético con ruido de fondo (ej. "hora" en vez de "hola", ya
+            # corregido, pero puede volver a pasar con otra palabra) no se
+            # podía ni diagnosticar: no había forma de saber qué la disparó.
+            print(f"[info] Activada por la palabra clave (coincidió con {matched_on!r}): {heard!r}")
+            # Por si quedó marcada de un "descansa" dicho por otro canal
+            # mientras no había ninguna conversación por voz activa que la
+            # consumiera — sin esto, esta conversación RECIÉN empezada se
+            # cortaría sola en su primera vuelta por una señal que ya no
+            # tiene nada que ver con ella.
+            proc.end_conversation_event.clear()
             voice.speak("Dime.")
 
             # Modo conversación: una vez activado, sigue escuchando turno tras
@@ -810,6 +912,13 @@ def _voice_loop(
             # "bloqueado" varios segundos sin poder decir nada.
             still_there_asked = False
             while not stop_event.is_set():
+                if proc.end_conversation_event.is_set():
+                    # "descansa" pedido desde otro canal (texto/celular)
+                    # mientras esta conversación por voz seguía activa — se
+                    # corta acá aunque la orden no haya llegado por este
+                    # bucle. Se limpia enseguida: es una señal de un solo uso.
+                    proc.end_conversation_event.clear()
+                    break
                 speaking_now = proc.speaking_event.is_set()
                 in_echo_grace = not speaking_now and (
                     time.time() - proc.speech_ended_at < POST_SPEECH_GRACE_SECONDS
@@ -867,7 +976,7 @@ def _voice_loop(
                     # algo y lo procesó como si el usuario hubiera repetido
                     # la misma pregunta.
                     if _is_cancel(command_text):
-                        print(f"Tú: {command_text}")
+                        print(f"Tú (voz): {command_text}")
                         ui_server.broadcast_transcript("user", command_text)
                         voice.stop_speaking()
                         proc.cancel_event.set()
@@ -916,10 +1025,39 @@ def _text_loop(
         text = ui_server.get_text_command(timeout=1.0)
         if text is None:
             continue
-        if _handle_cancel_if_requested(text, voice):
+        if _handle_cancel_if_requested(text, voice, source="texto"):
             continue
         try:
-            status = _handle_command(text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event)
+            status = _handle_command(
+                text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event, source="texto"
+            )
+            if status == "exit":
+                stop_event.set()
+        except Exception as exc:
+            _report_error(voice, exc)
+
+
+def _remote_audio_loop(
+    config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock: threading.Lock, stop_event: threading.Event
+) -> None:
+    """Atiende el audio grabado desde el celular usado como micrófono remoto
+    (ver ui_server.py/remote.html) — un botón de "mantén presionado para
+    hablar" ahí, así que igual que escribir, esto tampoco necesita la
+    palabra clave: apretar el botón YA es la acción explícita del usuario."""
+    while not stop_event.is_set():
+        item = ui_server.get_audio_command(timeout=1.0)
+        if item is None:
+            continue
+        audio_bytes, mime = item
+        text = listener.transcribe_bytes(audio_bytes, mime)
+        if not text:
+            continue
+        if _handle_cancel_if_requested(text, voice, source="celular"):
+            continue
+        try:
+            status = _handle_command(
+                text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event, source="celular"
+            )
             if status == "exit":
                 stop_event.set()
         except Exception as exc:
@@ -978,6 +1116,13 @@ def _assistant_loop(window) -> None:
     )
     text_thread.start()
 
+    remote_audio_thread = threading.Thread(
+        target=_remote_audio_loop,
+        args=(config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock, stop_event),
+        daemon=True,
+    )
+    remote_audio_thread.start()
+
     _voice_loop(config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock, stop_event)
 
     if window is not None:
@@ -1030,6 +1175,13 @@ def run() -> None:
     import ui_bridge
 
     ui_server.start()
+    lan_ip = ui_server.get_lan_ip()
+    print(
+        f"Micrófono remoto: abre https://{lan_ip}:{ui_server.REMOTE_PORT}/remote.html "
+        f"desde el navegador de tu celular (misma red WiFi). El certificado es "
+        f"autofirmado — el navegador va a avisar que no es seguro la primera vez, "
+        f"elegí \"Avanzado\" / \"Continuar de todas formas\", es esperado."
+    )
     window = webview.create_window(
         assistant_name,
         INTERFACE_PATH,

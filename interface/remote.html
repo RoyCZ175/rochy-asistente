@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Rochy — Micrófono remoto</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#05060b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rochy">
+<meta name="mobile-web-app-capable" content="yes">
+<style>
+  :root {
+    --blue: #00d9ff;
+    --purple: #b347ff;
+    --pink: #ff2f9e;
+    --orange: #ff9900;
+    --green: #3dffa0;
+    --bg: #05060b;
+    --panel: #0c0f1a;
+    --border: #1c2340;
+    --text: #d9e4ff;
+    --text-dim: #8ea0c9;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', 'Calibri', sans-serif;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  /* Fondo tipo "nubes" sutil, mismo lenguaje visual que la app de escritorio */
+  #glowBg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #glowBg::before, #glowBg::after {
+    content: '';
+    position: absolute;
+    width: 90vw;
+    height: 90vw;
+    border-radius: 50%;
+    filter: blur(70px);
+    opacity: 0.14;
+    animation: glowDrift 20s ease-in-out infinite;
+  }
+  #glowBg::before {
+    top: -20%; left: -25%;
+    background: radial-gradient(circle, var(--blue), transparent 70%);
+  }
+  #glowBg::after {
+    bottom: -25%; right: -20%;
+    background: radial-gradient(circle, var(--pink), transparent 70%);
+    animation-delay: -10s;
+  }
+  @keyframes glowDrift {
+    0%, 100% { transform: translate(0,0) scale(1); }
+    50% { transform: translate(5%,4%) scale(1.1); }
+  }
+
+  #app {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100dvh;
+    padding: max(16px, env(safe-area-inset-top)) 18px max(16px, env(safe-area-inset-bottom)) 18px;
+  }
+
+  #title {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    margin: 2px 0 0 0;
+    background: linear-gradient(90deg, var(--blue), var(--purple), var(--pink), var(--orange), var(--green), var(--blue));
+    background-size: 350% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: titleShift 10s linear infinite;
+  }
+  @keyframes titleShift { to { background-position: -300% center; } }
+
+  #connPill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 8px;
+    padding: 5px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    font-size: 11.5px;
+    color: var(--text-dim);
+    flex: 0 0 auto;
+  }
+  #connDot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--pink);
+    box-shadow: 0 0 6px var(--pink);
+    flex: 0 0 auto;
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+  }
+  #connDot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  #orbWrap {
+    position: relative;
+    width: min(58vw, 220px);
+    height: min(58vw, 220px);
+    margin: 14px auto 6px auto;
+    flex: 0 0 auto;
+  }
+  #orbWrap canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  #stateLabel {
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-dim);
+    flex: 0 0 auto;
+    min-height: 18px;
+    margin-bottom: 4px;
+  }
+
+  #log {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 420px;
+    overflow-y: auto;
+    margin: 6px 0 10px 0;
+    padding: 4px 2px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+  }
+  #log::-webkit-scrollbar { width: 5px; }
+  #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .bubble {
+    max-width: 85%;
+    padding: 8px 12px;
+    border-radius: 14px;
+    font-size: 13px;
+    line-height: 1.42;
+    word-wrap: break-word;
+    animation: bubbleIn 0.2s ease-out;
+  }
+  @keyframes bubbleIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  .bubble.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, #1c3a66, #23305e);
+    color: #e4edff;
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.assistant {
+    align-self: flex-start;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: #cfe0ff;
+    border-bottom-left-radius: 4px;
+  }
+
+  #talkBtn {
+    flex: 0 0 auto;
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    margin: 4px auto 10px auto;
+    border: none;
+    position: relative;
+    background: radial-gradient(circle at 35% 30%, #1c2340, #0c0f1a 70%);
+    box-shadow:
+      0 0 0 1.5px var(--border) inset,
+      0 10px 30px #00000066,
+      0 0 26px #00d9ff22;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    line-height: 1.35;
+    user-select: none;
+    touch-action: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
+  }
+  #talkBtn::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    padding: 1.5px;
+    background: conic-gradient(from 0deg, var(--blue), var(--purple), var(--pink), var(--orange), var(--green), var(--blue));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0.55;
+    animation: spinRing 6s linear infinite;
+  }
+  @keyframes spinRing { to { transform: rotate(360deg); } }
+  #talkBtn.recording {
+    transform: scale(1.07);
+    background: radial-gradient(circle at 35% 30%, #401c3a, #180a16 70%);
+    box-shadow:
+      0 0 0 1.5px var(--pink) inset,
+      0 10px 34px #00000077,
+      0 0 46px #ff2f9e55;
+  }
+  #talkBtn:disabled { opacity: 0.35; }
+
+  #hint {
+    text-align: center;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    flex: 0 0 auto;
+    opacity: 0.75;
+    padding-bottom: 2px;
+  }
+</style>
+</head>
+<body>
+<div id="glowBg"></div>
+<div id="app">
+  <h1 id="title" class="display-font">ROCHY</h1>
+  <div id="connPill"><span id="connDot"></span><span id="connText">Conectando…</span></div>
+
+  <div id="orbWrap">
+    <canvas id="orbGl"></canvas>
+    <canvas id="orbParticles"></canvas>
+  </div>
+
+  <div id="stateLabel"></div>
+
+  <div id="log"></div>
+
+  <button id="talkBtn">Mantén<br>presionado</button>
+  <div id="hint">Micrófono remoto — no hace falta decir "hola"</div>
+</div>
+
+<script src="orb.js"></script>
+<script>
+const orb = SiriOrb.init(document.getElementById('orbGl'), document.getElementById('orbParticles'));
+
+const log = document.getElementById('log');
+const connDot = document.getElementById('connDot');
+const connText = document.getElementById('connText');
+const stateLabel = document.getElementById('stateLabel');
+const talkBtn = document.getElementById('talkBtn');
+
+const STATE_LABELS = {
+  idle: 'Lista', listening: 'Escuchando…', thinking: 'Pensando…', speaking: 'Hablando…',
+};
+
+function setState(name) {
+  if (!STATE_LABELS[name]) return;
+  orb.setState(name);
+  stateLabel.textContent = STATE_LABELS[name];
+}
+setState('idle');
+
+function addBubble(role, text) {
+  const div = document.createElement('div');
+  div.className = 'bubble ' + (role === 'user' ? 'user' : 'assistant');
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+// --- WebSocket: mismo servidor que usa la interfaz de escritorio ---
+let ws;
+function connect() {
+  // Mismo origen del que se cargó esta página (https://<ip>:8767) — el
+  // certificado autofirmado que el navegador ya aceptó para la página
+  // sirve también para esta conexión, al ser el mismo host+puerto.
+  ws = new WebSocket(`wss://${location.host}`);
+  ws.onopen = () => {
+    connText.textContent = 'Conectado';
+    connDot.classList.add('on');
+  };
+  ws.onclose = () => {
+    connText.textContent = 'Reconectando…';
+    connDot.classList.remove('on');
+    setTimeout(connect, 1500);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (event) => {
+    let data;
+    try { data = JSON.parse(event.data); } catch (e) { return; }
+    if (data.type === 'state') {
+      setState(data.state);
+    } else if (data.type === 'transcript' && data.text) {
+      addBubble(data.role, data.text);
+    } else if (data.type === 'voice_envelope') {
+      orb.setVoiceEnvelope(data.envelope, data.step_ms);
+    }
+  };
+}
+connect();
+
+// --- Grabación push-to-talk ---
+let mediaRecorder = null;
+let chunks = [];
+let stream = null;
+
+const CANDIDATE_MIME_TYPES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/aac',
+];
+
+function pickMimeType() {
+  for (const type of CANDIDATE_MIME_TYPES) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return '';
+}
+
+async function startRecording() {
+  if (mediaRecorder) return;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    addBubble('assistant', 'No pude acceder al micrófono del celular: ' + e.message);
+    return;
+  }
+  const mimeType = pickMimeType();
+  chunks = [];
+  mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    const usedMime = mediaRecorder.mimeType || 'audio/webm';
+    const blob = new Blob(chunks, { type: usedMime });
+    mediaRecorder = null;
+    if (blob.size < 500) return; // grabación demasiado corta/vacía, no vale la pena mandarla
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result.split(',')[1];
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'audio_command', audio: base64, mime: usedMime }));
+      }
+    };
+    reader.readAsDataURL(blob);
+  };
+  mediaRecorder.start();
+  talkBtn.classList.add('recording');
+  talkBtn.innerHTML = 'Soltá para<br>enviar';
+}
+
+function stopRecording() {
+  talkBtn.classList.remove('recording');
+  talkBtn.innerHTML = 'Mantén<br>presionado';
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+}
+
+talkBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startRecording(); });
+talkBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopRecording(); });
+talkBtn.addEventListener('mousedown', startRecording);
+talkBtn.addEventListener('mouseup', stopRecording);
+talkBtn.addEventListener('mouseleave', () => { if (mediaRecorder) stopRecording(); });
+
+if (!window.MediaRecorder || !navigator.mediaDevices) {
+  talkBtn.disabled = true;
+  addBubble('assistant', 'Este navegador no soporta grabar audio (probá con Chrome o Safari actualizados).');
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('remote-sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
