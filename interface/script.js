@@ -129,10 +129,27 @@ function connect() {
       // Viene del proyecto aparte de control por gestos (gestos_control),
       // conectado como cliente WebSocket — solo se muestra, no pasa por la IA.
       addBubble('assistant', '🖐️ ' + data.label);
+      document.getElementById('gestureCamLabel').textContent = data.label;
+    } else if (data.type === 'gesture_frame' && data.image) {
+      showGestureCam(data.image);
     }
   };
 }
 connect();
+
+// --- Vista en vivo del proyecto de gestos (gestos_control, otro
+// microservicio) — se muestra sola en cuanto llegan frames de verdad por el
+// WebSocket, y se oculta sola si dejan de llegar (esa cámara se cerró o
+// nunca se abrió), para que sirva de confirmación real de que está en uso.
+const GESTURE_CAM_HIDE_MS = 3000;
+let gestureCamHideTimer = null;
+function showGestureCam(base64Jpeg) {
+  const panel = document.getElementById('gestureCamPanel');
+  document.getElementById('gestureCamImg').src = 'data:image/jpeg;base64,' + base64Jpeg;
+  panel.classList.add('visible');
+  clearTimeout(gestureCamHideTimer);
+  gestureCamHideTimer = setTimeout(() => panel.classList.remove('visible'), GESTURE_CAM_HIDE_MS);
+}
 
 // --- Selector nativo de archivos (modo estudio) ---
 function openFilePicker(subject) {

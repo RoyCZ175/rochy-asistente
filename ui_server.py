@@ -173,6 +173,11 @@ async def _handler(websocket):
                 # reenvía a la interfaz para mostrar qué gesto se detectó.
                 print(f"[gesto] {data['label']}")
                 _broadcast({"type": "gesture_event", "label": data["label"]})
+            elif data.get("type") == "gesture_frame" and data.get("image"):
+                # Frame de la cámara de gestos_control, ya en JPEG+base64 y
+                # a baja resolución (ver main.py de ese proyecto) — se
+                # reenvía tal cual, sin loguearlo (llegan varios por segundo).
+                _broadcast({"type": "gesture_frame", "image": data["image"]})
     finally:
         _clients.discard(websocket)
 

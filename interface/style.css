@@ -352,6 +352,56 @@ body.mode-local #modeGlow::after { background: radial-gradient(circle, #ff3d5a, 
    todo "contenido de ayuda" (ayuda de verdad, o elegir/crear una materia
    de estudio) aparece en esta misma ventana flotante, con nuestro propio
    estilo, en vez de mezclarse con el chat. */
+/* Panel flotante con la vista en vivo de la cámara del proyecto de gestos
+   (ver gestureCamPanel en index.html/script.js) — oculto por defecto,
+   aparece solo mientras llegan frames de verdad. */
+#gestureCamPanel {
+  position: fixed;
+  right: 18px;
+  bottom: 90px;
+  width: 200px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 16px 40px #000000aa;
+  z-index: 40;
+  display: none;
+}
+#gestureCamPanel.visible { display: block; }
+#gestureCamHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+#gestureCamDot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  flex: 0 0 auto;
+}
+#gestureCamImg {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: #000;
+}
+#gestureCamLabel {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--green);
+  min-height: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 #modalOverlay {
   position: fixed;
   inset: 0;

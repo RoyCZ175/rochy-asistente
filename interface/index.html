@@ -128,6 +128,19 @@
   </div>
 </div>
 
+<!-- Vista en vivo de la cámara del proyecto de gestos (gestos_control, otro
+     microservicio, ver rochy_link.py) — solo aparece cuando llegan frames de
+     verdad por WebSocket, y se oculta sola si dejan de llegar, para
+     confirmar a simple vista que la cámara está siendo usada. -->
+<div id="gestureCamPanel">
+  <div id="gestureCamHeader">
+    <span>🖐️ Cámara de gestos</span>
+    <span id="gestureCamDot"></span>
+  </div>
+  <img id="gestureCamImg" alt="Cámara de gestos">
+  <div id="gestureCamLabel"></div>
+</div>
+
 <!-- Ventana flotante reutilizable: ayuda y el selector de materias de
      estudio la usan, en vez de alert()/prompt() nativos del navegador. -->
 <div id="modalOverlay">
