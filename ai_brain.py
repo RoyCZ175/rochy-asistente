@@ -10,6 +10,7 @@ import control_signal
 import creation_log
 import google_services as goog
 import memory_store as mem
+import mode_state
 import moodle_client as moodle
 import spotify_control as spot
 import system_control as sc
@@ -874,6 +875,18 @@ def _end_session(mode: str) -> str:
     return "Entendido, cerrando la aplicación." if mode == "exit" else "Entendido, dejo de escuchar activamente."
 
 
+# Preset por nivel de "calidad" (ver mode_state.get_quality()/set_quality()):
+# reasoning_effort es un parámetro real de los modelos gpt-oss de Groq (más
+# esfuerzo = piensa más antes de responder, a cambio de más tokens y más
+# tiempo). max_tokens tope de la respuesta final, para que "bajo" también
+# ahorre en respuestas largas y no solo en el razonamiento.
+QUALITY_PRESETS = {
+    "bajo": {"reasoning_effort": "low", "max_tokens": 350},
+    "medio": {"reasoning_effort": "medium", "max_tokens": 600},
+    "alto": {"reasoning_effort": "high", "max_tokens": 1100},
+}
+
+
 class AIBrain:
     def __init__(self, config):
         # max_retries=0: por defecto el SDK reintenta 2 veces más ante fallos
@@ -918,6 +931,7 @@ class AIBrain:
             # otra llamada a la IA por una respuesta que ya nadie va a escuchar.
             if cancel_event is not None and cancel_event.is_set():
                 return None
+            preset = QUALITY_PRESETS[mode_state.get_quality()]
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
@@ -925,8 +939,8 @@ class AIBrain:
                     tools=TOOLS,
                     tool_choice="auto",
                     temperature=0.6,
-                    max_tokens=600,
-                    reasoning_effort="medium",
+                    max_tokens=preset["max_tokens"],
+                    reasoning_effort=preset["reasoning_effort"],
                 )
             except Exception:
                 if last_tool_results:

@@ -33,3 +33,23 @@ def is_remote_control() -> bool:
 def set_remote_control(value: bool) -> None:
     global _remote_control
     _remote_control = value
+
+
+# Nivel de "calidad" de las respuestas de la IA en la nube (Groq/Gemini):
+# cuánto razona el modelo antes de responder y cuántos tokens se le permite
+# usar. "bajo" ahorra costo/tiempo a cambio de respuestas más simples,
+# "alto" razona más para tareas que de verdad lo necesitan (a cambio de
+# tardar más y gastar más tokens). El modelo local no tiene un parámetro de
+# "razonamiento" equivalente, así que solo ajusta cuánto puede escribir.
+QUALITY_LEVELS = ("bajo", "medio", "alto")
+_quality = "medio"
+
+
+def get_quality() -> str:
+    return _quality
+
+
+def set_quality(value: str) -> None:
+    global _quality
+    if value in QUALITY_LEVELS:
+        _quality = value

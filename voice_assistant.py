@@ -226,7 +226,7 @@ def _has_word_starting_with(text: str, *roots: str) -> bool:
 OTHER_TARGET_WORDS = (
     "wifi", "wi-fi", "online", "internet", "volumen", "modo", "notificacion",
     "pantalla", "luz", "bluetooth", "brillo", "sonido", "microfono", "camara",
-    "bateria", "avion", "remoto",
+    "bateria", "avion", "remoto", "calidad",
 )
 
 
@@ -257,13 +257,34 @@ REMOTE_CONTROL_OFF_PHRASES = (
     "deja el control remoto", "vuelve al microfono normal",
 )
 
+# Frases para ajustar la "calidad" de las respuestas de la IA en la nube (ver
+# mode_state.get_quality()/set_quality() y QUALITY_PRESETS en ai_brain.py):
+# "bajo" prioriza velocidad/gasto, "alto" prioriza razonamiento. A propósito
+# NO se reutiliza "modo ahorro"/"ahorra tokens" aquí: esas frases ya
+# significan "fuerza el modelo local" (FORCE_LOCAL_PHRASES) y usarlas también
+# para esto sería ambiguo.
+QUALITY_LOW_PHRASES = (
+    "calidad baja", "baja calidad", "calidad minima", "modo economico",
+    "calidad en baja", "baja la calidad", "menos calidad",
+)
+QUALITY_MEDIUM_PHRASES = (
+    "calidad media", "media calidad", "calidad normal", "modo balanceado",
+    "calidad en media", "calidad estandar",
+)
+QUALITY_HIGH_PHRASES = (
+    "calidad alta", "alta calidad", "calidad maxima", "modo experto",
+    "mejor razonamiento", "razona mejor", "piensa mejor",
+    "calidad en alta", "sube la calidad", "mas calidad",
+)
+
 
 def _classify_control_intent(command_text: str) -> str:
     """Detecta frases de control (salir/pausar/reiniciar/modo local) tolerando
     variaciones de conjugación, acentos y palabras de más alrededor — no exige
     una coincidencia exacta con una frase fija. Devuelve 'exit',
     'end_conversation', 'reset', 'force_local', 'force_online',
-    'remote_control_on', 'remote_control_off' o 'none'."""
+    'remote_control_on', 'remote_control_off', 'quality_low', 'quality_medium',
+    'quality_high' o 'none'."""
     text = _normalize_text(command_text)
     targets_something_else = any(word in text for word in OTHER_TARGET_WORDS)
 
@@ -308,6 +329,13 @@ def _classify_control_intent(command_text: str) -> str:
         return "remote_control_off"
     if is_short_command and any(p in text for p in REMOTE_CONTROL_ON_PHRASES):
         return "remote_control_on"
+
+    if is_short_command and any(p in text for p in QUALITY_LOW_PHRASES):
+        return "quality_low"
+    if is_short_command and any(p in text for p in QUALITY_HIGH_PHRASES):
+        return "quality_high"
+    if is_short_command and any(p in text for p in QUALITY_MEDIUM_PHRASES):
+        return "quality_medium"
 
     return "none"
 
@@ -573,6 +601,19 @@ def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
         ui_server.broadcast_remote_control(False)
+        return "handled"
+
+    if intent in ("quality_low", "quality_medium", "quality_high"):
+        level = {"quality_low": "bajo", "quality_medium": "medio", "quality_high": "alto"}[intent]
+        mode_state.set_quality(level)
+        reply = {
+            "bajo": "Listo, calidad baja: respuestas más rápidas y con menos gasto de tokens.",
+            "medio": "Listo, calidad media: el balance de siempre.",
+            "alto": "Listo, calidad alta: voy a razonar más antes de responder.",
+        }[level]
+        print(f"{config.assistant_name}: {reply} [calidad = {level}]")
+        voice.speak(reply)
+        ui_server.broadcast_transcript("assistant", reply)
         return "handled"
 
     return None
