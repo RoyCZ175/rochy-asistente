@@ -87,8 +87,6 @@ function updateStatusBar() {
     document.getElementById('statusText').textContent = currentAiMode === 'local' ? 'Modo local' : 'En línea';
     document.getElementById('statusSub').textContent = currentAiMode === 'local' ? 'Ahorrando datos, sin internet' : 'Siempre listo para ayudarte';
   }
-
-  document.getElementById('uploadBtn').disabled = !currentStudySubject;
 }
 updateStatusBar();
 
@@ -164,7 +162,16 @@ function sendControl(text) {
 
 document.getElementById('pauseBtn').addEventListener('click', () => sendControl('descansa'));
 document.getElementById('powerBtn').addEventListener('click', () => sendControl('apágate'));
-document.getElementById('brandBtn').addEventListener('click', () => sendControl('reinicia la conversación'));
+
+// --- Nueva conversación: borra el chat visible y reinicia el contexto de la IA ---
+function clearChat() {
+  hideTypingIndicator();
+  log.innerHTML = '';
+  document.getElementById('main').classList.remove('chatting');
+  sendControl('reinicia la conversación');
+}
+document.getElementById('brandBtn').addEventListener('click', clearChat);
+document.getElementById('newChatBtn').addEventListener('click', clearChat);
 
 document.getElementById('modeBtn').addEventListener('click', () => {
   sendControl(currentAiMode === 'local' ? 'modo online' : 'modo local');
@@ -184,10 +191,6 @@ function updateRemoteControlUI() {
 }
 document.getElementById('remoteBtn').addEventListener('click', () => {
   sendControl(currentRemoteControl ? 'desactiva el control remoto' : 'activa el control remoto');
-});
-
-document.getElementById('uploadBtn').addEventListener('click', () => {
-  if (currentStudySubject) openFilePicker(currentStudySubject);
 });
 
 // --- Ventana flotante (modal) ---
@@ -242,6 +245,7 @@ function showHelp() {
 }
 
 const SUBJECT_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 5.5C4 4.7 4.7 4 5.5 4H12v16H5.5C4.7 20 4 19.3 4 18.5V5.5Z"/><path d="M20 5.5C20 4.7 19.3 4 18.5 4H12v16h6.5c.8 0 1.5-.7 1.5-1.5V5.5Z"/></svg>';
+const TRASH_ICON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg>';
 
 async function showStudyPicker() {
   openModal('Modo estudio', '<p style="opacity:.7">Cargando tus materias…</p>');
@@ -260,6 +264,7 @@ async function showStudyPicker() {
         <div class="subjectRow" data-subject="${s}">
           <span class="subjectIcon">${SUBJECT_ICON}</span>
           <span class="subjectName">${s.replace(/_/g, ' ')}</span>
+          <button class="subjectDelete" data-subject="${s}" title="Borrar esta materia">${TRASH_ICON}</button>
         </div>
       `).join('')
     : '<p style="opacity:.7">Todavía no tienes ninguna materia — crea la primera abajo.</p>';
@@ -280,6 +285,36 @@ async function showStudyPicker() {
       if (window.pywebview && window.pywebview.api) {
         await window.pywebview.api.activate_subject(subject);
       }
+    });
+  });
+
+  // Botón de basura: pide confirmación DENTRO de la misma fila (nada de
+  // confirm() nativo del navegador, no combina con el estilo del resto de
+  // la app) antes de borrar la materia y sus archivos de verdad.
+  modalBodyEl.querySelectorAll('.subjectDelete').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const subject = btn.dataset.subject;
+      const row = btn.closest('.subjectRow');
+      row.classList.add('confirmDelete');
+      row.innerHTML = `
+        <span class="confirmText">¿Borrar "${subject.replace(/_/g, ' ')}" y todos sus archivos?</span>
+        <div class="confirmBtns">
+          <button class="confirmYes">Sí, borrar</button>
+          <button class="confirmNo">Cancelar</button>
+        </div>
+      `;
+      row.querySelector('.confirmNo').addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        showStudyPicker();
+      });
+      row.querySelector('.confirmYes').addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        if (window.pywebview && window.pywebview.api) {
+          await window.pywebview.api.delete_subject(subject);
+        }
+        showStudyPicker();
+      });
     });
   });
 
@@ -329,7 +364,11 @@ document.getElementById('navStudy').addEventListener('click', () => {
 });
 document.getElementById('navFiles').addEventListener('click', () => {
   setActiveNav('navFiles');
-  document.getElementById('uploadBtn').click();
+  if (currentStudySubject) {
+    openFilePicker(currentStudySubject);
+  } else {
+    showStudyPicker();
+  }
 });
 document.getElementById('navHelp').addEventListener('click', () => {
   setActiveNav('navHelp');

@@ -438,7 +438,31 @@ body.mode-local #modeGlow::after { background: radial-gradient(circle, #ff3d5a, 
 }
 .subjectRow:hover { border-color: var(--purple); transform: translateX(2px); }
 .subjectRow .subjectIcon { color: var(--purple); flex: 0 0 auto; display: flex; }
-.subjectRow .subjectName { font-weight: 600; text-transform: capitalize; font-size: 12.5px; }
+.subjectRow .subjectName { font-weight: 600; text-transform: capitalize; font-size: 12.5px; flex: 1; }
+.subjectDelete {
+  flex: 0 0 auto;
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.subjectDelete:hover { color: var(--pink); border-color: var(--pink); background: #1c0f18; }
+.subjectRow.confirmDelete { cursor: default; border-color: var(--pink); background: #1c0f18; }
+.subjectRow.confirmDelete:hover { transform: none; }
+.subjectRow .confirmText { flex: 1; font-size: 11.5px; color: var(--text-dim); }
+.confirmBtns { display: flex; gap: 6px; flex: 0 0 auto; }
+.confirmBtns button {
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.confirmBtns .confirmYes { background: var(--pink); color: #fff; border: none; }
+.confirmBtns .confirmNo { background: var(--panel); color: var(--text-dim); border: 1px solid var(--border); }
 #newSubjectRow { display: flex; gap: 8px; margin-top: 4px; }
 #newSubjectInput {
   flex: 1;

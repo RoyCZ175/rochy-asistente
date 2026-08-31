@@ -46,6 +46,24 @@ class StudyFilesApi:
         ui_server.broadcast_mode(ai_mode, study_state.get_subject())
         return {"ok": True, "message": reply}
 
+    def delete_subject(self, subject: str) -> dict:
+        """Borra una materia completa (archivos + índice) desde el botón de
+        basura del selector de materias de la interfaz. Si era la materia
+        activa, sale del modo estudio también."""
+        if not subject or not subject.strip():
+            return {"ok": False, "message": "Falta el nombre de la materia."}
+
+        message = study_rag.delete_subject(subject)
+
+        if study_state.get_subject() == subject:
+            study_state.set_subject(None)
+            ai_mode = "local" if mode_state.is_forced_local() else "online"
+            ui_server.broadcast_mode(ai_mode, None)
+
+        print(f"Rochy: {message}")
+        ui_server.broadcast_transcript("assistant", message)
+        return {"ok": True, "message": message}
+
     def pick_and_copy(self, subject: str) -> dict:
         if not subject or not subject.strip():
             return {"ok": False, "message": "Falta el nombre de la materia."}

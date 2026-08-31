@@ -279,3 +279,15 @@ def forget_subject(subject: str) -> str:
         shutil.rmtree(idir)
         return f"Listo, olvidé lo indexado de '{subject}'. Tus archivos siguen intactos en {sdir}."
     return f"No tenía nada indexado de '{subject}'."
+
+
+def delete_subject(subject: str) -> str:
+    """Borra la materia por completo: archivos originales E índice. A
+    diferencia de forget_subject (que solo limpia el índice y conserva tus
+    apuntes), esto es lo que usa el botón de basura del selector de materias
+    en la interfaz — ahí sí se espera que la materia desaparezca del todo."""
+    sdir = subject_dir(subject)
+    if os.path.isdir(sdir):
+        shutil.rmtree(sdir)
+        return f"Listo, borré la materia '{subject}' por completo."
+    return f"No encontré la materia '{subject}'."
