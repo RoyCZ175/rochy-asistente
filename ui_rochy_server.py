@@ -19,8 +19,10 @@ PORT = 5173
 
 # Ruta a la otra carpeta/proyecto — UI-ROCHY es su propio proyecto a
 # propósito (sin depender de este); esto solo sabe DÓNDE está para poder
-# servirlo, no comparte código con él.
-UI_ROCHY_DIR = r"C:\Users\roger\Documents\UI-ROCHY"
+# servirlo, no comparte código con él. Se arma con el usuario de Windows
+# ACTUAL (no "roger" fijo) para que funcione igual en la PC de un
+# colaborador, siempre que también tenga la carpeta en su propio Documents.
+UI_ROCHY_DIR = os.path.join(os.path.expanduser("~"), "Documents", "UI-ROCHY")
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):

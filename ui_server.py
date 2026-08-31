@@ -237,6 +237,14 @@ def broadcast_mode(ai_mode: str, study_subject) -> None:
     _broadcast({"type": "mode_update", "ai_mode": ai_mode, "study_subject": study_subject})
 
 
+def broadcast_camera_control(action: str) -> None:
+    """Le pide al proyecto de gestos (gestos_control, conectado como cliente
+    WebSocket) que oculte o muestre su ventana de cámara local — la detección
+    de gestos sigue funcionando igual, esto solo esconde la ventana redundante
+    (ya que la interfaz también muestra ese video, ver gesture_frame)."""
+    _broadcast({"type": "camera_control", "action": action})
+
+
 def broadcast_quality(level: str) -> None:
     """Le avisa a la interfaz el nivel de calidad de respuesta actual (ver
     mode_state.get_quality()/set_quality()) — así un selector en la interfaz

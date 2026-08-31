@@ -270,6 +270,17 @@ QUALITY_MEDIUM_PHRASES = (
     "calidad media", "media calidad", "calidad normal", "modo balanceado",
     "calidad en media", "calidad estandar",
 )
+# Frases para esconder/mostrar la ventana local de la cámara del proyecto de
+# gestos (gestos_control) sin cerrarlo — la detección sigue funcionando
+# igual, esto solo saca de en medio la ventana redundante (la interfaz de
+# Rochy ya muestra ese mismo video, ver gesture_frame en ui_server.py).
+CAMERA_HIDE_PHRASES = (
+    "oculta la camara", "esconde la camara", "quita la camara",
+)
+CAMERA_SHOW_PHRASES = (
+    "muestra la camara", "activa la camara", "vuelve a mostrar la camara",
+)
+
 QUALITY_HIGH_PHRASES = (
     "calidad alta", "alta calidad", "calidad maxima", "modo experto",
     "mejor razonamiento", "razona mejor", "piensa mejor",
@@ -283,7 +294,7 @@ def _classify_control_intent(command_text: str) -> str:
     una coincidencia exacta con una frase fija. Devuelve 'exit',
     'end_conversation', 'reset', 'force_local', 'force_online',
     'remote_control_on', 'remote_control_off', 'quality_low', 'quality_medium',
-    'quality_high' o 'none'."""
+    'quality_high', 'camera_hide', 'camera_show' o 'none'."""
     text = _normalize_text(command_text)
     targets_something_else = any(word in text for word in OTHER_TARGET_WORDS)
 
@@ -328,6 +339,11 @@ def _classify_control_intent(command_text: str) -> str:
         return "remote_control_off"
     if is_short_command and any(p in text for p in REMOTE_CONTROL_ON_PHRASES):
         return "remote_control_on"
+
+    if is_short_command and any(p in text for p in CAMERA_HIDE_PHRASES):
+        return "camera_hide"
+    if is_short_command and any(p in text for p in CAMERA_SHOW_PHRASES):
+        return "camera_show"
 
     if is_short_command and any(p in text for p in QUALITY_LOW_PHRASES):
         return "quality_low"
@@ -600,6 +616,15 @@ def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
         ui_server.broadcast_remote_control(False)
+        return "handled"
+
+    if intent in ("camera_hide", "camera_show"):
+        hide = intent == "camera_hide"
+        ui_server.broadcast_camera_control("hide" if hide else "show")
+        reply = "Listo, escondí la ventana de la cámara." if hide else "Listo, volví a mostrar la ventana de la cámara."
+        print(f"{config.assistant_name}: {reply} [camara = {'oculta' if hide else 'visible'}]")
+        voice.speak(reply)
+        ui_server.broadcast_transcript("assistant", reply)
         return "handled"
 
     if intent in ("quality_low", "quality_medium", "quality_high"):
