@@ -792,6 +792,15 @@ LOCAL_TOOLS = [t for t in TOOLS if t["function"]["name"] not in CLOUD_ONLY_TOOLS
 # (evita que "reinterprete" una pregunta de confirmación de seguridad).
 VERBATIM_TOOLS = {"gmail_draft_email"}
 
+# Herramientas de "solo traer contenido para resumir" — nunca son el primer paso
+# de una cadena (a diferencia de create_folder->create_webpage o
+# university_pending_tasks->university_reconnect). Si TODAS las que se
+# llamaron en una ronda están acá, la ronda siguiente no manda el esquema de
+# herramientas — se comprobó en vivo que mandarlo ahí no sirve para nada más
+# que sumar ~4700 tokens fijos, justo lo que hacía fallar la llamada de
+# resumen final contra el límite de tokens por minuto de Groq.
+NO_CHAIN_TOOLS = {"web_read"}
+
 # Herramientas que teclean literalmente en la ventana con foco. Los modelos (sobre
 # todo los locales, más pequeños) a veces las usan para "escribir" su propia
 # respuesta en vez de solo contestar — de código, exigimos que el último mensaje
@@ -1082,6 +1091,7 @@ class AIBrain:
         # que dejar que todo el turno se reinicie desde cero en otro cerebro
         # que no tiene ni idea de que ya se hizo algo.
         last_tool_results: list = []
+        skip_tools_this_round = False
         for _ in range(MAX_TOOL_ROUNDS):
             # Si el usuario canceló (dijo "olvídalo" u otra orden nueva) mientras
             # esperábamos, no tiene sentido seguir encadenando rondas ni gastar
@@ -1089,15 +1099,15 @@ class AIBrain:
             if cancel_event is not None and cancel_event.is_set():
                 return None
             preset = QUALITY_PRESETS[mode_state.get_quality()]
+            tool_kwargs = {} if skip_tools_this_round else {"tools": TOOLS, "tool_choice": "auto"}
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=self.history,
-                    tools=TOOLS,
-                    tool_choice="auto",
                     temperature=0.6,
                     max_tokens=preset["max_tokens"],
                     reasoning_effort=preset["reasoning_effort"],
+                    **tool_kwargs,
                 )
             except Exception as exc:
                 if last_tool_results:
@@ -1184,6 +1194,7 @@ class AIBrain:
 
             # si no fue una tool verbatim, seguimos el bucle: el modelo puede querer
             # encadenar otra herramienta más antes de responder con texto final.
+            skip_tools_this_round = all(call.function.name in NO_CHAIN_TOOLS for call in message.tool_calls)
 
         final_text = "Hice varias acciones seguidas, pero me quedé sin poder resumirlo. ¿Revisamos si quedó bien?"
         self.history.append({"role": "assistant", "content": final_text})
