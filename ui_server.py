@@ -57,6 +57,10 @@ _clients = set()
 _ready = threading.Event()
 _text_queue: "queue.Queue[str]" = queue.Queue()
 _audio_queue: "queue.Queue[tuple[bytes, str]]" = queue.Queue()
+# Pedidos a la extensión de navegador (rochy-extension) que SÍ esperan una
+# respuesta — a diferencia de todo lo demás en este archivo, que es aviso
+# sin esperar nada de vuelta (ver request_tab_command).
+_pending_tab_requests: dict = {}
 
 
 def get_lan_ip() -> str:
@@ -178,6 +182,14 @@ async def _handler(websocket):
                 # a baja resolución (ver main.py de ese proyecto) — se
                 # reenvía tal cual, sin loguearlo (llegan varios por segundo).
                 _broadcast({"type": "gesture_frame", "image": data["image"]})
+            elif data.get("type") == "tab_result" and data.get("request_id"):
+                # Respuesta de la extensión de navegador (otro microservicio
+                # más, ver rochy-extension) a un pedido de request_tab_command
+                # — a diferencia de todo lo de arriba (que es aviso sin
+                # esperar respuesta), acá SÍ hay alguien bloqueado esperando.
+                future = _pending_tab_requests.pop(data["request_id"], None)
+                if future is not None and not future.done():
+                    future.set_result(data)
     finally:
         _clients.discard(websocket)
 
@@ -235,6 +247,39 @@ def broadcast_mode(ai_mode: str, study_subject) -> None:
     materia de 'modo estudio' está activa (o None si ninguna), para que lo
     muestre en la barra de estado sin que el usuario tenga que preguntarlo."""
     _broadcast({"type": "mode_update", "ai_mode": ai_mode, "study_subject": study_subject})
+
+
+def request_tab_command(action: str, match: str = None, url: str = None, timeout: float = 4.0) -> dict:
+    """Le pide algo a la extensión de navegador (rochy-extension, otro
+    microservicio conectado como cliente WebSocket, ver ui_server.py) y
+    ESPERA su respuesta — a diferencia de todo lo demás en este archivo
+    (puro aviso, sin esperar nada de vuelta). Función síncrona a propósito:
+    la llaman los tools de la IA, que son código síncrono normal.
+
+    Devuelve el diccionario de respuesta de la extensión, o None si no está
+    conectada o no contestó a tiempo — quien llame esto NUNCA debe asumir
+    que la acción se hizo si esto devuelve None."""
+    if _loop is None or not _clients:
+        return None
+
+    import uuid
+
+    request_id = uuid.uuid4().hex
+    future = asyncio.run_coroutine_threadsafe(_wait_for_tab_result(request_id), _loop)
+    _broadcast({"type": "tab_command", "request_id": request_id, "action": action, "match": match, "url": url})
+    try:
+        return future.result(timeout=timeout)
+    except Exception:
+        return None
+
+
+async def _wait_for_tab_result(request_id: str) -> dict:
+    fut = asyncio.get_running_loop().create_future()
+    _pending_tab_requests[request_id] = fut
+    try:
+        return await fut
+    finally:
+        _pending_tab_requests.pop(request_id, None)
 
 
 def broadcast_camera_control(action: str) -> None:

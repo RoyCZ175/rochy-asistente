@@ -2,6 +2,7 @@
 
 import concurrent.futures
 import json
+import urllib.parse
 
 from groq import Groq
 
@@ -14,6 +15,7 @@ import mode_state
 import moodle_client as moodle
 import spotify_control as spot
 import system_control as sc
+import ui_server
 import university_login
 import university_tutor as uni
 
@@ -47,6 +49,62 @@ TOOLS = [
                 "type": "object",
                 "properties": {"query": {"type": "string"}},
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_open_tabs",
+            "description": (
+                "Lista las pestañas abiertas del navegador (título y URL). Necesita la extensión de "
+                "navegador (rochy-extension) conectada — si no está, dilo con naturalidad, no inventes "
+                "una lista."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "close_tab",
+            "description": (
+                "Cierra una pestaña del navegador buscándola por parte de su título o URL (ej. "
+                "'netflix', 'youtube') — no hace falta que esa pestaña esté al frente. Necesita la "
+                "extensión de navegador conectada; si no está o no encontró ninguna coincidencia, dilo "
+                "con naturalidad, nunca digas que la cerraste si no confirmó de verdad."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"match": {"type": "string"}},
+                "required": ["match"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "focus_tab",
+            "description": (
+                "Trae al frente una pestaña ya abierta, buscándola por parte de su título o URL. "
+                "Necesita la extensión de navegador conectada."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"match": {"type": "string"}},
+                "required": ["match"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_tab",
+            "description": "Abre una pestaña nueva en una URL exacta o con una búsqueda, sin cerrar ninguna existente.",
+            "parameters": {
+                "type": "object",
+                "properties": {"url_or_query": {"type": "string"}},
+                "required": ["url_or_query"],
             },
         },
     },
@@ -863,6 +921,10 @@ def build_tool_functions(config) -> dict:
         "media_previous_track": lambda args: sc.media_previous_track(),
         "media_seek": lambda args: sc.media_seek(args["direction"]),
         "close_active_tab": lambda args: sc.close_active_tab(),
+        "list_open_tabs": lambda args: _list_open_tabs(),
+        "close_tab": lambda args: _close_tab(args["match"]),
+        "focus_tab": lambda args: _focus_tab(args["match"]),
+        "open_tab": lambda args: _open_tab(args["url_or_query"]),
         "set_brightness": lambda args: sc.set_brightness(args["level"]),
         "brightness_step": lambda args: sc.brightness_step(args["direction"], args.get("steps", 10)),
         "set_wifi": lambda args: sc.set_wifi(args["enabled"]),
@@ -922,6 +984,50 @@ def build_tool_functions(config) -> dict:
         ),
         "end_session": lambda args: _end_session(args.get("mode", "pause")),
     }
+
+
+_NO_EXTENSION_MSG = (
+    "No tengo la extensión del navegador (rochy-extension) conectada ahora mismo, "
+    "así que no puedo hacer eso con las pestañas."
+)
+
+
+def _list_open_tabs() -> str:
+    result = ui_server.request_tab_command("list")
+    if result is None:
+        return _NO_EXTENSION_MSG
+    tabs = result.get("tabs") or []
+    if not tabs:
+        return "No hay ninguna pestaña abierta."
+    return "Pestañas abiertas: " + "; ".join(f"{t.get('title', '?')} ({t.get('url', '?')})" for t in tabs)
+
+
+def _close_tab(match: str) -> str:
+    result = ui_server.request_tab_command("close", match=match)
+    if result is None:
+        return _NO_EXTENSION_MSG
+    if result.get("closed"):
+        return f"Listo, cerré la pestaña de '{match}'."
+    return f"No encontré ninguna pestaña que coincida con '{match}'."
+
+
+def _focus_tab(match: str) -> str:
+    result = ui_server.request_tab_command("focus", match=match)
+    if result is None:
+        return _NO_EXTENSION_MSG
+    if result.get("focused"):
+        return f"Listo, traje al frente la pestaña de '{match}'."
+    return f"No encontré ninguna pestaña que coincida con '{match}'."
+
+
+def _open_tab(url_or_query: str) -> str:
+    text = url_or_query.strip()
+    if not (text.startswith("http://") or text.startswith("https://")):
+        text = "https://www.google.com/search?q=" + urllib.parse.quote(text)
+    result = ui_server.request_tab_command("open", url=text)
+    if result is None:
+        return _NO_EXTENSION_MSG
+    return "Listo, abrí una pestaña nueva."
 
 
 def _end_session(mode: str) -> str:
