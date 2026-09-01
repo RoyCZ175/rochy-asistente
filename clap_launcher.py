@@ -23,17 +23,18 @@ BLOCK_MS = 20
 BLOCK_SIZE = int(SAMPLE_RATE * BLOCK_MS / 1000)
 
 # Qué tan fuerte tiene que ser un pico para contar como aplauso (RMS del
-# bloque, en escala 0..1). Depende del micrófono y de qué tan lejos aplauda
-# el usuario — SE DEBE CALIBRAR probando en vivo (correr con
-# DEBUG_PRINT_RMS=True, aplaudir, y ajustar según los números reales).
-CLAP_RMS_THRESHOLD = 0.2
+# bloque, en escala 0..1). CALIBRADO EN VIVO con Roger: su ruido de fondo
+# mide ~0.004-0.01, y sus aplausos reales dieron entre 0.08 y 0.21 — 0.2
+# (el valor original, adivinado sin probar) se perdía casi todos. 0.06 deja
+# margen de sobra arriba del ruido y por debajo del aplauso más flojo real.
+CLAP_RMS_THRESHOLD = 0.06
 # Tiempo mínimo entre picos para no contar un solo sonido sostenido (una
 # puerta, un golpe) como dos aplausos.
 REFRACTORY_SECONDS = 0.15
 # Ventana máxima entre el primer y el segundo aplauso para contar como
-# "doble aplauso" (ni tan pegados que sean el mismo golpe, ni tan separados
-# que sean dos ruidos sin relación).
-DOUBLE_CLAP_WINDOW_SECONDS = 0.8
+# "doble aplauso". Subido de 0.8 a 1.0s tras ver en vivo que aplausos
+# reales seguidos a veces caen justo por encima de 0.8s.
+DOUBLE_CLAP_WINDOW_SECONDS = 1.0
 
 # Prende esto para ver el volumen real de cada bloque mientras se prueba —
 # útil para calibrar CLAP_RMS_THRESHOLD con aplausos de verdad antes de
