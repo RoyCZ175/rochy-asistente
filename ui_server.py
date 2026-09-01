@@ -163,9 +163,10 @@ async def _handler(websocket):
                 data = json.loads(raw)
             except json.JSONDecodeError:
                 continue
-            if data.get("type") == "text_command" and data.get("text", "").strip():
+            msg_type = data.get("type")
+            if msg_type == "text_command" and data.get("text", "").strip():
                 _text_queue.put(data["text"].strip())
-            elif data.get("type") == "audio_command" and data.get("audio"):
+            elif msg_type == "audio_command" and data.get("audio"):
                 try:
                     audio_bytes = base64.b64decode(data["audio"])
                 except (ValueError, TypeError):
