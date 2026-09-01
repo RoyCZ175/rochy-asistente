@@ -12,6 +12,7 @@ university_deadlines.json
 google_credentials.json
 google_token.json
 rochy.log
+clap_launcher.log
 vosk_model_es/
 creation_log.json
 .remote_cert/

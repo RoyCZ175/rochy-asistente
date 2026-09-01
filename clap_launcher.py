@@ -11,15 +11,31 @@ No usa reconocimiento de voz (sería carísimo para esto) — un aplauso es un
 pico de volumen muy corto y fuerte comparado con ruido normal de fondo, así
 que basta con medir el volumen (RMS) de cada bloque de audio."""
 
+import datetime
 import json
 import os
 import socket
 import subprocess
+import sys
 import time
 
 import numpy as np
 import sounddevice as sd
 import websockets.sync.client as ws_sync
+
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clap_launcher.log")
+
+# Mismo problema y mismo arreglo que voice_assistant.py: al arrancar con
+# Windows (ver iniciar_clap_launcher.vbs) se usa pythonw.exe sin consola,
+# así que sys.stdout es None — cualquier print() sin esto reventaba de
+# verdad (OSError: [Errno 22] Invalid argument) justo ANTES de llegar a
+# abrir/cerrar Rochy, y como pasaba dentro del callback de audio, aparecía
+# como un diálogo de error de Windows en vez de un traceback normal.
+if sys.stdout is None or sys.stderr is None:
+    _log_file = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
+    sys.stdout = _log_file
+    sys.stderr = _log_file
+    print(f"\n=== Sesión iniciada {datetime.datetime.now().isoformat(timespec='seconds')} ===")
 
 SAMPLE_RATE = 16000
 BLOCK_MS = 20
