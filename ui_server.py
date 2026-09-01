@@ -157,17 +157,39 @@ async def _handler(websocket):
                 data = json.loads(raw)
             except json.JSONDecodeError:
                 continue
-            if data.get("type") == "text_command" and data.get("text", "").strip():
+            msg_type = data.get("type")
+            if msg_type == "text_command" and data.get("text", "").strip():
                 _text_queue.put(data["text"].strip())
-            elif data.get("type") == "audio_command" and data.get("audio"):
+            elif msg_type == "audio_command" and data.get("audio"):
                 try:
                     audio_bytes = base64.b64decode(data["audio"])
                 except (ValueError, TypeError):
                     continue
                 mime = data.get("mime", "audio/webm")
                 _audio_queue.put((audio_bytes, mime))
+            elif msg_type in ("gesture_event", "gesture_frame"):
+                # Viene del microservicio de control por gestos (gestos_control,
+                # ver rochy_link.py) conectado como un cliente más de este mismo
+                # WebSocket — se reenvía tal cual (ya viene en el formato que
+                # espera la interfaz) a las demás interfaces conectadas
+                # (widget de escritorio, UI-ROCHY), sin que Rochy necesite
+                # entender el contenido en sí.
+                await _relay_to_others(websocket, raw)
     finally:
         _clients.discard(websocket)
+
+
+async def _relay_to_others(sender, message: str) -> None:
+    dead = []
+    for ws in list(_clients):
+        if ws is sender:
+            continue
+        try:
+            await ws.send(message)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        _clients.discard(ws)
 
 
 async def _main() -> None:
