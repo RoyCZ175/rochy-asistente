@@ -1,7 +1,8 @@
 """Escucha el micrófono todo el tiempo buscando un patrón de DOS aplausos
-seguidos para abrir Rochy solo, sin doble clic. Corre aparte de Rochy a
-propósito — tiene que poder abrirlo, así que no puede depender de que ya
-esté corriendo. Pensado para arrancar junto con Windows (ver
+seguidos para ABRIR Rochy si está cerrado, o CERRARLO si ya está abierto —
+un interruptor, no solo un "encendido". Corre aparte de Rochy a propósito
+— tiene que poder abrirlo, así que no puede depender de que ya esté
+corriendo. Pensado para arrancar junto con Windows (ver
 iniciar_clap_launcher.vbs) y quedarse escuchando todo el tiempo, incluso
 con Rochy cerrado — no graba ni manda nada a ningún lado, solo mide picos
 de volumen en memoria.
@@ -10,6 +11,7 @@ No usa reconocimiento de voz (sería carísimo para esto) — un aplauso es un
 pico de volumen muy corto y fuerte comparado con ruido normal de fondo, así
 que basta con medir el volumen (RMS) de cada bloque de audio."""
 
+import json
 import os
 import socket
 import subprocess
@@ -17,6 +19,7 @@ import time
 
 import numpy as np
 import sounddevice as sd
+import websockets.sync.client as ws_sync
 
 SAMPLE_RATE = 16000
 BLOCK_MS = 20
@@ -95,6 +98,21 @@ def _launch_rochy() -> None:
     subprocess.Popen(["cscript", "//nologo", LAUNCHER_VBS], cwd=BASE_DIR)
 
 
+def _close_rochy() -> None:
+    """Le pide a Rochy que se cierre por el mismo camino que ya usan la voz/
+    texto/celular ("apágate") — nada nuevo del lado de Rochy, solo se
+    conecta como un cliente más de su WebSocket (igual que gestos_control o
+    la extensión) y manda el mismo comando de texto de siempre. Así se cierra
+    bien (guarda su estado, cierra la ventana) en vez de matar el proceso a
+    la fuerza."""
+    print("[clap] doble aplauso detectado, cerrando Rochy...")
+    try:
+        with ws_sync.connect("ws://127.0.0.1:8765", open_timeout=2) as ws:
+            ws.send(json.dumps({"type": "text_command", "text": "apágate"}))
+    except Exception as exc:
+        print(f"[clap] no pude avisarle a Rochy que se cierre: {exc}")
+
+
 def main():
     print("[clap] escuchando aplausos dobles (Ctrl+C para salir)...")
     detector = ClapDetector()
@@ -105,7 +123,7 @@ def main():
             print(f"[clap] rms={rms:.3f}")
         if detector.process(rms, time.time()):
             if _rochy_running():
-                print("[clap] doble aplauso detectado, pero Rochy ya está abierto.")
+                _close_rochy()
             else:
                 _launch_rochy()
 
