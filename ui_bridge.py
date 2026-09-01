@@ -1,4 +1,4 @@
-"""Puente entre la interfaz (JavaScript, interface/index.html) y Python,
+"""Puente entre la interfaz (JavaScript, proyecto aparte en UI-ROCHY) y Python,
 expuesto vía pywebview: cualquier método público de StudyFilesApi queda
 disponible en el navegador como `window.pywebview.api.<método>(...)`, y
 devuelve una Promise con el resultado.

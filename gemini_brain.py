@@ -24,6 +24,19 @@ from ai_brain import (
     build_tool_functions,
 )
 import memory_store as mem
+import mode_state
+
+# Preset por nivel de "calidad" (ver mode_state.get_quality()/set_quality()).
+# thinking_level es el equivalente en Gemini al reasoning_effort de Groq (ver
+# QUALITY_PRESETS en ai_brain.py) — "minimal" prácticamente no razona antes
+# de responder, "high" sí, y probado en vivo consume tanto presupuesto de
+# pensamiento que con max_output_tokens bajo puede no dejar nada para la
+# respuesta visible, por eso "alto" también sube el tope de tokens.
+QUALITY_PRESETS = {
+    "bajo": {"thinking_level": "minimal", "max_output_tokens": 350},
+    "medio": {"thinking_level": "medium", "max_output_tokens": 600},
+    "alto": {"thinking_level": "high", "max_output_tokens": 1200},
+}
 
 
 def _build_gemini_tool() -> types.Tool:
@@ -80,11 +93,13 @@ class GeminiBrain:
         self.history = []
 
     def _config(self) -> types.GenerateContentConfig:
+        preset = QUALITY_PRESETS[mode_state.get_quality()]
         return types.GenerateContentConfig(
             system_instruction=self._system_content,
             tools=[self._tool],
             temperature=0.6,
-            max_output_tokens=600,
+            max_output_tokens=preset["max_output_tokens"],
+            thinking_config=types.ThinkingConfig(thinking_level=preset["thinking_level"]),
             # Control manual, igual que ai_brain.py/local_ai_brain.py: ejecutamos
             # las herramientas nosotros mismos (con límite de tiempo, logging,
             # reglas de tipeo, etc.) en vez de dejar que el SDK las llame solo.

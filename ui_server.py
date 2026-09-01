@@ -34,6 +34,8 @@ import websockets
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
+import processing_state
+
 HOST = "0.0.0.0"
 PORT = 8765
 # Puerto aparte, con HTTPS (certificado autofirmado), solo para el micrófono
@@ -57,6 +59,10 @@ _clients = set()
 _ready = threading.Event()
 _text_queue: "queue.Queue[str]" = queue.Queue()
 _audio_queue: "queue.Queue[tuple[bytes, str]]" = queue.Queue()
+# Pedidos a la extensión de navegador (rochy-extension) que SÍ esperan una
+# respuesta — a diferencia de todo lo demás en este archivo, que es aviso
+# sin esperar nada de vuelta (ver request_tab_command).
+_pending_tab_requests: dict = {}
 
 
 def get_lan_ip() -> str:
@@ -167,29 +173,34 @@ async def _handler(websocket):
                     continue
                 mime = data.get("mime", "audio/webm")
                 _audio_queue.put((audio_bytes, mime))
-            elif msg_type in ("gesture_event", "gesture_frame"):
-                # Viene del microservicio de control por gestos (gestos_control,
-                # ver rochy_link.py) conectado como un cliente más de este mismo
-                # WebSocket — se reenvía tal cual (ya viene en el formato que
-                # espera la interfaz) a las demás interfaces conectadas
-                # (widget de escritorio, UI-ROCHY), sin que Rochy necesite
-                # entender el contenido en sí.
-                await _relay_to_others(websocket, raw)
+            elif data.get("type") == "gesture_event" and data.get("label"):
+                # Lo manda el proyecto aparte de control por gestos (carpeta
+                # gestos_control, otro microservicio, se conecta acá como un
+                # cliente WebSocket más). No es una orden para la IA — solo se
+                # reenvía a la interfaz para mostrar qué gesto se detectó.
+                print(f"[gesto] {data['label']}")
+                _broadcast({"type": "gesture_event", "label": data["label"]})
+            elif data.get("type") == "gesture_frame" and data.get("image"):
+                # Frame de la cámara de gestos_control, ya en JPEG+base64 y
+                # a baja resolución (ver main.py de ese proyecto) — se
+                # reenvía tal cual, sin loguearlo (llegan varios por segundo).
+                _broadcast({"type": "gesture_frame", "image": data["image"]})
+            elif data.get("type") == "gesture_talk_request":
+                # Gesto de "quiero hablarte" (palma abierta sostenida) — el
+                # bucle de voz lo revisa igual que la palabra clave (ver
+                # processing_state.gesture_wake_event).
+                print("[gesto] quiero hablarte")
+                processing_state.gesture_wake_event.set()
+            elif data.get("type") == "tab_result" and data.get("request_id"):
+                # Respuesta de la extensión de navegador (otro microservicio
+                # más, ver rochy-extension) a un pedido de request_tab_command
+                # — a diferencia de todo lo de arriba (que es aviso sin
+                # esperar respuesta), acá SÍ hay alguien bloqueado esperando.
+                future = _pending_tab_requests.pop(data["request_id"], None)
+                if future is not None and not future.done():
+                    future.set_result(data)
     finally:
         _clients.discard(websocket)
-
-
-async def _relay_to_others(sender, message: str) -> None:
-    dead = []
-    for ws in list(_clients):
-        if ws is sender:
-            continue
-        try:
-            await ws.send(message)
-        except Exception:
-            dead.append(ws)
-    for ws in dead:
-        _clients.discard(ws)
 
 
 async def _main() -> None:
@@ -245,6 +256,55 @@ def broadcast_mode(ai_mode: str, study_subject) -> None:
     materia de 'modo estudio' está activa (o None si ninguna), para que lo
     muestre en la barra de estado sin que el usuario tenga que preguntarlo."""
     _broadcast({"type": "mode_update", "ai_mode": ai_mode, "study_subject": study_subject})
+
+
+def request_tab_command(action: str, match: str = None, url: str = None, timeout: float = 4.0) -> dict:
+    """Le pide algo a la extensión de navegador (rochy-extension, otro
+    microservicio conectado como cliente WebSocket, ver ui_server.py) y
+    ESPERA su respuesta — a diferencia de todo lo demás en este archivo
+    (puro aviso, sin esperar nada de vuelta). Función síncrona a propósito:
+    la llaman los tools de la IA, que son código síncrono normal.
+
+    Devuelve el diccionario de respuesta de la extensión, o None si no está
+    conectada o no contestó a tiempo — quien llame esto NUNCA debe asumir
+    que la acción se hizo si esto devuelve None."""
+    if _loop is None or not _clients:
+        return None
+
+    import uuid
+
+    request_id = uuid.uuid4().hex
+    future = asyncio.run_coroutine_threadsafe(_wait_for_tab_result(request_id), _loop)
+    _broadcast({"type": "tab_command", "request_id": request_id, "action": action, "match": match, "url": url})
+    try:
+        return future.result(timeout=timeout)
+    except Exception:
+        return None
+
+
+async def _wait_for_tab_result(request_id: str) -> dict:
+    fut = asyncio.get_running_loop().create_future()
+    _pending_tab_requests[request_id] = fut
+    try:
+        return await fut
+    finally:
+        _pending_tab_requests.pop(request_id, None)
+
+
+def broadcast_camera_control(action: str) -> None:
+    """Le pide al proyecto de gestos (gestos_control, conectado como cliente
+    WebSocket) que oculte o muestre su ventana de cámara local — la detección
+    de gestos sigue funcionando igual, esto solo esconde la ventana redundante
+    (ya que la interfaz también muestra ese video, ver gesture_frame)."""
+    _broadcast({"type": "camera_control", "action": action})
+
+
+def broadcast_quality(level: str) -> None:
+    """Le avisa a la interfaz el nivel de calidad de respuesta actual (ver
+    mode_state.get_quality()/set_quality()) — así un selector en la interfaz
+    se mantiene sincronizado aunque el cambio haya llegado por voz u otro
+    canal, en vez de solo confiar en lo último que el propio usuario clickeó."""
+    _broadcast({"type": "quality_update", "level": level})
 
 
 def broadcast_remote_control(active: bool) -> None:

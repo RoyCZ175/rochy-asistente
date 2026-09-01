@@ -192,6 +192,42 @@ def mute_toggle() -> str:
     return "Silenciado." if not muted else "Sonido activado."
 
 
+# Control de reproducción "universal": Windows manda estas teclas al
+# reproductor activo en ese momento (YouTube, Spotify, VLC, lo que sea) sin
+# importar qué ventana tenga el foco — mismo mecanismo ya probado de verdad
+# en gestos_control/actions.py, solo que aquí lo dispara la voz/texto en vez
+# de un gesto de mano.
+def media_play_pause() -> str:
+    pyautogui.press("playpause")
+    return "Reproducción pausada o reanudada."
+
+
+def media_next_track() -> str:
+    pyautogui.press("nexttrack")
+    return "Pasé a la siguiente pista."
+
+
+def media_previous_track() -> str:
+    pyautogui.press("prevtrack")
+    return "Volví a la pista anterior."
+
+
+# A diferencia de las teclas de medios de arriba, adelantar/atrasar SÍ
+# necesita que la ventana correcta (ej. la pestaña de YouTube) tenga el foco
+# en este momento — no hay una tecla "adelantar" a nivel de sistema como sí
+# la hay para play/pausa. Se asume que si el usuario pide esto es porque
+# está viendo eso mismo en pantalla.
+def media_seek(direction: str) -> str:
+    key = "right" if direction == "adelante" else "left"
+    pyautogui.press(key)
+    return "Adelanté el video." if direction == "adelante" else "Atrasé el video."
+
+
+def close_active_tab() -> str:
+    pyautogui.hotkey("ctrl", "w")
+    return "Cerré la pestaña o ventana activa."
+
+
 def _read_brightness() -> int:
     result = subprocess.run(
         [

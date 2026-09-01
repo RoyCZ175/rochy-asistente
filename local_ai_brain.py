@@ -26,9 +26,18 @@ from ai_brain import (
     build_tool_functions,
 )
 import memory_store as mem
+import mode_state
 
 OLLAMA_BASE = "http://localhost:11434"
 TIMEOUT = 60
+
+# Preset por nivel de "calidad" (ver mode_state.get_quality()/set_quality()).
+# El modelo local no tiene un parámetro de "razonamiento" como Groq/Gemini
+# (ver QUALITY_PRESETS en ai_brain.py/gemini_brain.py) — aquí solo se ajusta
+# cuánto puede escribir de respuesta. La temperatura NO se toca: quedó fija
+# en 0.2 a propósito (ver _chat) porque valores más altos hacían que este
+# modelo chico fallara decidiendo cuándo llamar a una herramienta.
+NUM_PREDICT_PRESETS = {"bajo": 200, "medio": 500, "alto": 900}
 
 SYSTEM_PROMPT_LOCAL = """Eres {name}, un asistente de voz personal, hablas en español.
 Estás en modo local (sin internet o modo ahorro activado a propósito), con un modelo más
@@ -222,6 +231,7 @@ class LocalAIBrain:
                 # que queríamos darle. Medido en esta PC: con 16384 el modelo
                 # usa ~5.3GB de VRAM (de 8GB), deja de sobra para lo demás.
                 "num_ctx": 16384,
+                "num_predict": NUM_PREDICT_PRESETS[mode_state.get_quality()],
             },
         }
         if tools:

@@ -2,6 +2,7 @@
 
 import concurrent.futures
 import json
+import urllib.parse
 
 from groq import Groq
 
@@ -10,11 +11,14 @@ import control_signal
 import creation_log
 import google_services as goog
 import memory_store as mem
+import mode_state
 import moodle_client as moodle
 import spotify_control as spot
 import system_control as sc
+import ui_server
 import university_login
 import university_tutor as uni
+import web_research
 
 TOOLS = [
     {
@@ -34,18 +38,74 @@ TOOLS = [
         "function": {
             "name": "web_search",
             "description": (
-                "Abre una pestaña del navegador con la búsqueda en Google. NO te devuelve resultados "
-                "ni contenido de la página — el usuario es quien lee lo que se abrió, tú no ves nada de "
-                "eso. Úsala SOLO cuando el usuario pida explícitamente ABRIR/MOSTRAR/BUSCARLE algo en el "
-                "navegador (ej. 'ábreme un video de X', 'búscame la página de Y'), nunca para responder "
-                "preguntas o explicar algo — eso respóndelo tú directamente con lo que ya sabes. Llámala "
-                "como máximo una vez por pedido: nunca la repitas con otra consulta pensando que así vas "
-                "a conseguir un resultado distinto, porque nunca vas a ver ningún resultado."
+                "Abre una pestaña del navegador con una búsqueda en Google, sin devolverte el contenido. "
+                "Úsala SOLO si piden explícitamente ABRIR/MOSTRAR algo en el navegador. Para responder "
+                "preguntas usa web_read en vez de esta. Máximo una vez por pedido, nunca repitas."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {"query": {"type": "string"}},
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_read",
+            "description": (
+                "Busca en internet de verdad y te trae el texto real de las páginas (a diferencia de "
+                "web_search). Úsala para info actual o específica que no sepas de memoria. El texto es "
+                "material crudo: analízalo y responde breve, con tus palabras, sin leer URLs."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_open_tabs",
+            "description": "Lista las pestañas abiertas (título y URL). Necesita la extensión del navegador conectada; si no está, dilo, no inventes.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "close_tab",
+            "description": "Cierra una pestaña buscándola por parte del título o URL (ej. 'netflix'), sin que esté al frente. Necesita la extensión conectada; nunca digas que la cerraste sin confirmación real.",
+            "parameters": {
+                "type": "object",
+                "properties": {"match": {"type": "string"}},
+                "required": ["match"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "focus_tab",
+            "description": "Trae al frente una pestaña ya abierta, por parte de su título o URL. Necesita la extensión conectada.",
+            "parameters": {
+                "type": "object",
+                "properties": {"match": {"type": "string"}},
+                "required": ["match"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_tab",
+            "description": "Abre una pestaña nueva en una URL exacta o con una búsqueda, sin cerrar ninguna existente.",
+            "parameters": {
+                "type": "object",
+                "properties": {"url_or_query": {"type": "string"}},
+                "required": ["url_or_query"],
             },
         },
     },
@@ -89,6 +149,50 @@ TOOLS = [
         "function": {
             "name": "mute_toggle",
             "description": "Silencia o reactiva el sonido del sistema.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_play_pause",
+            "description": "Pausa o reanuda lo que se esté reproduciendo (YouTube, Spotify, etc.), sin importar el foco.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_next_track",
+            "description": "Pasa a la siguiente pista o video en el reproductor activo.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_previous_track",
+            "description": "Vuelve a la pista o video anterior en el reproductor activo.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_seek",
+            "description": "Adelanta o atrasa el video en pantalla. Solo funciona si esa ventana tiene el foco ahora.",
+            "parameters": {
+                "type": "object",
+                "properties": {"direction": {"type": "string", "enum": ["adelante", "atras"]}},
+                "required": ["direction"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "close_active_tab",
+            "description": "Cierra la pestaña o ventana que está activa/al frente en este momento (Ctrl+W).",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -688,6 +792,15 @@ LOCAL_TOOLS = [t for t in TOOLS if t["function"]["name"] not in CLOUD_ONLY_TOOLS
 # (evita que "reinterprete" una pregunta de confirmación de seguridad).
 VERBATIM_TOOLS = {"gmail_draft_email"}
 
+# Herramientas de "solo traer contenido para resumir" — nunca son el primer paso
+# de una cadena (a diferencia de create_folder->create_webpage o
+# university_pending_tasks->university_reconnect). Si TODAS las que se
+# llamaron en una ronda están acá, la ronda siguiente no manda el esquema de
+# herramientas — se comprobó en vivo que mandarlo ahí no sirve para nada más
+# que sumar ~4700 tokens fijos, justo lo que hacía fallar la llamada de
+# resumen final contra el límite de tokens por minuto de Groq.
+NO_CHAIN_TOOLS = {"web_read"}
+
 # Herramientas que teclean literalmente en la ventana con foco. Los modelos (sobre
 # todo los locales, más pequeños) a veces las usan para "escribir" su propia
 # respuesta en vez de solo contestar — de código, exigimos que el último mensaje
@@ -803,10 +916,20 @@ def build_tool_functions(config) -> dict:
     return {
         "open_app": lambda args: sc.open_app(args["app_name"]),
         "web_search": lambda args: sc.web_search(args["query"]),
+        "web_read": lambda args: web_research.web_read(args["query"]),
         "get_time": lambda args: sc.get_time(),
         "set_volume": lambda args: sc.set_volume(args["level"]),
         "volume_step": lambda args: sc.volume_step(args["direction"], args.get("steps", 10)),
         "mute_toggle": lambda args: sc.mute_toggle(),
+        "media_play_pause": lambda args: sc.media_play_pause(),
+        "media_next_track": lambda args: sc.media_next_track(),
+        "media_previous_track": lambda args: sc.media_previous_track(),
+        "media_seek": lambda args: sc.media_seek(args["direction"]),
+        "close_active_tab": lambda args: sc.close_active_tab(),
+        "list_open_tabs": lambda args: _list_open_tabs(),
+        "close_tab": lambda args: _close_tab(args["match"]),
+        "focus_tab": lambda args: _focus_tab(args["match"]),
+        "open_tab": lambda args: _open_tab(args["url_or_query"]),
         "set_brightness": lambda args: sc.set_brightness(args["level"]),
         "brightness_step": lambda args: sc.brightness_step(args["direction"], args.get("steps", 10)),
         "set_wifi": lambda args: sc.set_wifi(args["enabled"]),
@@ -868,10 +991,66 @@ def build_tool_functions(config) -> dict:
     }
 
 
+_NO_EXTENSION_MSG = (
+    "No tengo la extensión del navegador (rochy-extension) conectada ahora mismo, "
+    "así que no puedo hacer eso con las pestañas."
+)
+
+
+def _list_open_tabs() -> str:
+    result = ui_server.request_tab_command("list")
+    if result is None:
+        return _NO_EXTENSION_MSG
+    tabs = result.get("tabs") or []
+    if not tabs:
+        return "No hay ninguna pestaña abierta."
+    return "Pestañas abiertas: " + "; ".join(f"{t.get('title', '?')} ({t.get('url', '?')})" for t in tabs)
+
+
+def _close_tab(match: str) -> str:
+    result = ui_server.request_tab_command("close", match=match)
+    if result is None:
+        return _NO_EXTENSION_MSG
+    if result.get("closed"):
+        return f"Listo, cerré la pestaña de '{match}'."
+    return f"No encontré ninguna pestaña que coincida con '{match}'."
+
+
+def _focus_tab(match: str) -> str:
+    result = ui_server.request_tab_command("focus", match=match)
+    if result is None:
+        return _NO_EXTENSION_MSG
+    if result.get("focused"):
+        return f"Listo, traje al frente la pestaña de '{match}'."
+    return f"No encontré ninguna pestaña que coincida con '{match}'."
+
+
+def _open_tab(url_or_query: str) -> str:
+    text = url_or_query.strip()
+    if not (text.startswith("http://") or text.startswith("https://")):
+        text = "https://www.google.com/search?q=" + urllib.parse.quote(text)
+    result = ui_server.request_tab_command("open", url=text)
+    if result is None:
+        return _NO_EXTENSION_MSG
+    return "Listo, abrí una pestaña nueva."
+
+
 def _end_session(mode: str) -> str:
     mode = "exit" if mode == "exit" else "pause"
     control_signal.request(mode)
     return "Entendido, cerrando la aplicación." if mode == "exit" else "Entendido, dejo de escuchar activamente."
+
+
+# Preset por nivel de "calidad" (ver mode_state.get_quality()/set_quality()):
+# reasoning_effort es un parámetro real de los modelos gpt-oss de Groq (más
+# esfuerzo = piensa más antes de responder, a cambio de más tokens y más
+# tiempo). max_tokens tope de la respuesta final, para que "bajo" también
+# ahorre en respuestas largas y no solo en el razonamiento.
+QUALITY_PRESETS = {
+    "bajo": {"reasoning_effort": "low", "max_tokens": 350},
+    "medio": {"reasoning_effort": "medium", "max_tokens": 600},
+    "alto": {"reasoning_effort": "high", "max_tokens": 1100},
+}
 
 
 class AIBrain:
@@ -912,24 +1091,33 @@ class AIBrain:
         # que dejar que todo el turno se reinicie desde cero en otro cerebro
         # que no tiene ni idea de que ya se hizo algo.
         last_tool_results: list = []
+        skip_tools_this_round = False
         for _ in range(MAX_TOOL_ROUNDS):
             # Si el usuario canceló (dijo "olvídalo" u otra orden nueva) mientras
             # esperábamos, no tiene sentido seguir encadenando rondas ni gastar
             # otra llamada a la IA por una respuesta que ya nadie va a escuchar.
             if cancel_event is not None and cancel_event.is_set():
                 return None
+            preset = QUALITY_PRESETS[mode_state.get_quality()]
+            tool_kwargs = {} if skip_tools_this_round else {"tools": TOOLS, "tool_choice": "auto"}
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=self.history,
-                    tools=TOOLS,
-                    tool_choice="auto",
                     temperature=0.6,
-                    max_tokens=600,
-                    reasoning_effort="medium",
+                    max_tokens=preset["max_tokens"],
+                    reasoning_effort=preset["reasoning_effort"],
+                    **tool_kwargs,
                 )
-            except Exception:
+            except Exception as exc:
                 if last_tool_results:
+                    # Antes esto fallaba en silencio total — se perdió tiempo real
+                    # diagnosticando un caso donde Groq devolvía el texto crudo de
+                    # una herramienta en vez de resumirlo, y resultó ser esto: la
+                    # llamada de "resumen final" fallando (ej. RateLimitError por
+                    # el límite de tokens por minuto de la cuenta), sin ningún
+                    # rastro en el log de que había pasado.
+                    print(f"[aviso] Falló la llamada de resumen final ({exc}), devuelvo el resultado real de la herramienta.")
                     return " ".join(last_tool_results)
                 raise
             if cancel_event is not None and cancel_event.is_set():
@@ -1006,6 +1194,7 @@ class AIBrain:
 
             # si no fue una tool verbatim, seguimos el bucle: el modelo puede querer
             # encadenar otra herramienta más antes de responder con texto final.
+            skip_tools_this_round = all(call.function.name in NO_CHAIN_TOOLS for call in message.tool_calls)
 
         final_text = "Hice varias acciones seguidas, pero me quedé sin poder resumirlo. ¿Revisamos si quedó bien?"
         self.history.append({"role": "assistant", "content": final_text})
