@@ -18,6 +18,7 @@ import system_control as sc
 import ui_server
 import university_login
 import university_tutor as uni
+import web_research
 
 TOOLS = [
     {
@@ -37,13 +38,25 @@ TOOLS = [
         "function": {
             "name": "web_search",
             "description": (
-                "Abre una pestaña del navegador con la búsqueda en Google. NO te devuelve resultados "
-                "ni contenido de la página — el usuario es quien lee lo que se abrió, tú no ves nada de "
-                "eso. Úsala SOLO cuando el usuario pida explícitamente ABRIR/MOSTRAR/BUSCARLE algo en el "
-                "navegador (ej. 'ábreme un video de X', 'búscame la página de Y'), nunca para responder "
-                "preguntas o explicar algo — eso respóndelo tú directamente con lo que ya sabes. Llámala "
-                "como máximo una vez por pedido: nunca la repitas con otra consulta pensando que así vas "
-                "a conseguir un resultado distinto, porque nunca vas a ver ningún resultado."
+                "Abre una pestaña del navegador con una búsqueda en Google, sin devolverte el contenido. "
+                "Úsala SOLO si piden explícitamente ABRIR/MOSTRAR algo en el navegador. Para responder "
+                "preguntas usa web_read en vez de esta. Máximo una vez por pedido, nunca repitas."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_read",
+            "description": (
+                "Busca en internet de verdad y te trae el texto real de las páginas (a diferencia de "
+                "web_search). Úsala para info actual o específica que no sepas de memoria. El texto es "
+                "material crudo: analízalo y responde breve, con tus palabras, sin leer URLs."
             ),
             "parameters": {
                 "type": "object",
@@ -56,11 +69,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "list_open_tabs",
-            "description": (
-                "Lista las pestañas abiertas del navegador (título y URL). Necesita la extensión de "
-                "navegador (rochy-extension) conectada — si no está, dilo con naturalidad, no inventes "
-                "una lista."
-            ),
+            "description": "Lista las pestañas abiertas (título y URL). Necesita la extensión del navegador conectada; si no está, dilo, no inventes.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -68,12 +77,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "close_tab",
-            "description": (
-                "Cierra una pestaña del navegador buscándola por parte de su título o URL (ej. "
-                "'netflix', 'youtube') — no hace falta que esa pestaña esté al frente. Necesita la "
-                "extensión de navegador conectada; si no está o no encontró ninguna coincidencia, dilo "
-                "con naturalidad, nunca digas que la cerraste si no confirmó de verdad."
-            ),
+            "description": "Cierra una pestaña buscándola por parte del título o URL (ej. 'netflix'), sin que esté al frente. Necesita la extensión conectada; nunca digas que la cerraste sin confirmación real.",
             "parameters": {
                 "type": "object",
                 "properties": {"match": {"type": "string"}},
@@ -85,10 +89,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "focus_tab",
-            "description": (
-                "Trae al frente una pestaña ya abierta, buscándola por parte de su título o URL. "
-                "Necesita la extensión de navegador conectada."
-            ),
+            "description": "Trae al frente una pestaña ya abierta, por parte de su título o URL. Necesita la extensión conectada.",
             "parameters": {
                 "type": "object",
                 "properties": {"match": {"type": "string"}},
@@ -155,10 +156,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "media_play_pause",
-            "description": (
-                "Pausa o reanuda lo que se esté reproduciendo ahora mismo (YouTube, Spotify, "
-                "cualquier reproductor) — funciona sin importar qué ventana tenga el foco."
-            ),
+            "description": "Pausa o reanuda lo que se esté reproduciendo (YouTube, Spotify, etc.), sin importar el foco.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -182,10 +180,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "media_seek",
-            "description": (
-                "Adelanta o atrasa el video que se está viendo AHORA en pantalla (ej. YouTube). "
-                "Solo funciona si esa ventana/pestaña tiene el foco en este momento."
-            ),
+            "description": "Adelanta o atrasa el video en pantalla. Solo funciona si esa ventana tiene el foco ahora.",
             "parameters": {
                 "type": "object",
                 "properties": {"direction": {"type": "string", "enum": ["adelante", "atras"]}},
@@ -912,6 +907,7 @@ def build_tool_functions(config) -> dict:
     return {
         "open_app": lambda args: sc.open_app(args["app_name"]),
         "web_search": lambda args: sc.web_search(args["query"]),
+        "web_read": lambda args: web_research.web_read(args["query"]),
         "get_time": lambda args: sc.get_time(),
         "set_volume": lambda args: sc.set_volume(args["level"]),
         "volume_step": lambda args: sc.volume_step(args["direction"], args.get("steps", 10)),
@@ -1103,8 +1099,15 @@ class AIBrain:
                     max_tokens=preset["max_tokens"],
                     reasoning_effort=preset["reasoning_effort"],
                 )
-            except Exception:
+            except Exception as exc:
                 if last_tool_results:
+                    # Antes esto fallaba en silencio total — se perdió tiempo real
+                    # diagnosticando un caso donde Groq devolvía el texto crudo de
+                    # una herramienta en vez de resumirlo, y resultó ser esto: la
+                    # llamada de "resumen final" fallando (ej. RateLimitError por
+                    # el límite de tokens por minuto de la cuenta), sin ningún
+                    # rastro en el log de que había pasado.
+                    print(f"[aviso] Falló la llamada de resumen final ({exc}), devuelvo el resultado real de la herramienta.")
                     return " ".join(last_tool_results)
                 raise
             if cancel_event is not None and cancel_event.is_set():
