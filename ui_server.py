@@ -34,6 +34,8 @@ import websockets
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
+import processing_state
+
 HOST = "0.0.0.0"
 PORT = 8765
 # Puerto aparte, con HTTPS (certificado autofirmado), solo para el micrófono
@@ -182,6 +184,12 @@ async def _handler(websocket):
                 # a baja resolución (ver main.py de ese proyecto) — se
                 # reenvía tal cual, sin loguearlo (llegan varios por segundo).
                 _broadcast({"type": "gesture_frame", "image": data["image"]})
+            elif data.get("type") == "gesture_talk_request":
+                # Gesto de "quiero hablarte" (palma abierta sostenida) — el
+                # bucle de voz lo revisa igual que la palabra clave (ver
+                # processing_state.gesture_wake_event).
+                print("[gesto] quiero hablarte")
+                processing_state.gesture_wake_event.set()
             elif data.get("type") == "tab_result" and data.get("request_id"):
                 # Respuesta de la extensión de navegador (otro microservicio
                 # más, ver rochy-extension) a un pedido de request_tab_command

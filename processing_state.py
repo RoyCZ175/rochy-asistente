@@ -56,3 +56,10 @@ last_speech_seconds = 0.0
 # de confirmación, pero el micrófono seguía escuchando exactamente igual —
 # cada canal solo sabía cortar SU PROPIA conversación, nunca la de otro.
 end_conversation_event = threading.Event()
+
+# Puesto cuando el proyecto de gestos (gestos_control) confirma el gesto de
+# "quiero hablarte" (palma abierta sostenida) — ver ui_server.py, que lo pone
+# al recibir {"type": "gesture_talk_request"}. El bucle de voz lo revisa
+# igual que la palabra clave: si está puesto, entra directo a la
+# conversación sin necesitar que además se diga la palabra clave.
+gesture_wake_event = threading.Event()

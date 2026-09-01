@@ -3,6 +3,7 @@ import difflib
 import os
 import random
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -21,6 +22,7 @@ if sys.stdout is None or sys.stderr is None:
     sys.stderr = _log_file
     print(f"\n=== Sesión iniciada {datetime.datetime.now().isoformat(timespec='seconds')} ===")
 
+import audio_ducking
 import connectivity
 import control_signal
 import local_brain
@@ -32,6 +34,39 @@ import study_state
 import system_control as sc
 import ui_rochy_server
 import ui_server
+
+# Ruta al otro proyecto/carpeta (gestos_control, aparte a propósito) — con
+# el usuario de Windows actual, no "roger" fijo, mismo motivo que
+# ui_rochy_server.UI_ROCHY_DIR: para que funcione igual en la PC de un
+# colaborador si algún día tiene esa carpeta en su propio Documents.
+GESTOS_CONTROL_DIR = os.path.join(os.path.expanduser("~"), "Documents", "gestos_control")
+
+# Antes gestos_control se abría solo, junto con Rochy — ahora, a propósito,
+# solo arranca cuando se pide por voz ("activa los gestos"), así la cámara
+# nunca está encendida sin que el usuario lo haya pedido explícitamente.
+_gestures_process: "subprocess.Popen | None" = None
+
+
+def _start_gestures() -> str:
+    global _gestures_process
+    if _gestures_process is not None and _gestures_process.poll() is None:
+        return "Los gestos ya estaban activados."
+    pythonw = os.path.join(GESTOS_CONTROL_DIR, "venv", "Scripts", "pythonw.exe")
+    main_script = os.path.join(GESTOS_CONTROL_DIR, "main.py")
+    if not os.path.isfile(pythonw) or not os.path.isfile(main_script):
+        return "No encontré el proyecto de control por gestos instalado en esta PC."
+    _gestures_process = subprocess.Popen([pythonw, main_script], cwd=GESTOS_CONTROL_DIR)
+    return "Listo, activé el control por gestos."
+
+
+def _stop_gestures() -> str:
+    global _gestures_process
+    if _gestures_process is None or _gestures_process.poll() is not None:
+        _gestures_process = None
+        return "Los gestos ya estaban desactivados."
+    _gestures_process.terminate()
+    _gestures_process = None
+    return "Listo, desactivé el control por gestos."
 
 
 def parse_command(text: str):
@@ -225,7 +260,7 @@ def _has_word_starting_with(text: str, *roots: str) -> bool:
 OTHER_TARGET_WORDS = (
     "wifi", "wi-fi", "online", "internet", "volumen", "modo", "notificacion",
     "pantalla", "luz", "bluetooth", "brillo", "sonido", "microfono", "camara",
-    "bateria", "avion", "remoto", "calidad",
+    "bateria", "avion", "remoto", "calidad", "gestos",
 )
 
 
@@ -270,15 +305,27 @@ QUALITY_MEDIUM_PHRASES = (
     "calidad media", "media calidad", "calidad normal", "modo balanceado",
     "calidad en media", "calidad estandar",
 )
-# Frases para esconder/mostrar la ventana local de la cámara del proyecto de
-# gestos (gestos_control) sin cerrarlo — la detección sigue funcionando
-# igual, esto solo saca de en medio la ventana redundante (la interfaz de
-# Rochy ya muestra ese mismo video, ver gesture_frame en ui_server.py).
+# Frases para activar/desactivar el proyecto de gestos (gestos_control) por
+# completo — antes se abría solo junto con Rochy; ahora, a propósito, no
+# arranca hasta que se pida (así la cámara nunca está encendida sin que el
+# usuario lo haya pedido). "activar/desactivar" ya está en OTHER_TARGET_WORDS
+# vía "remoto"/"camara" para otras cosas — acá se agrega "gestos" al mismo
+# fin, para no confundirse con "apágate"/"desactiva el control remoto".
+GESTURES_ON_PHRASES = (
+    "activa los gestos", "activa el control por gestos", "enciende los gestos",
+)
+GESTURES_OFF_PHRASES = (
+    "desactiva los gestos", "apaga los gestos", "desactiva el control por gestos",
+)
+
+# Frases para esconder/mostrar el panel de video de gestos_control en la
+# interfaz de Rochy (el ÚNICO lugar donde se puede ver — ya no tiene ventana
+# propia) sin desactivar la detección de gestos en sí.
 CAMERA_HIDE_PHRASES = (
     "oculta la camara", "esconde la camara", "quita la camara",
 )
 CAMERA_SHOW_PHRASES = (
-    "muestra la camara", "activa la camara", "vuelve a mostrar la camara",
+    "muestra la camara", "vuelve a mostrar la camara",
 )
 
 QUALITY_HIGH_PHRASES = (
@@ -294,7 +341,8 @@ def _classify_control_intent(command_text: str) -> str:
     una coincidencia exacta con una frase fija. Devuelve 'exit',
     'end_conversation', 'reset', 'force_local', 'force_online',
     'remote_control_on', 'remote_control_off', 'quality_low', 'quality_medium',
-    'quality_high', 'camera_hide', 'camera_show' o 'none'."""
+    'quality_high', 'camera_hide', 'camera_show', 'gestures_on', 'gestures_off'
+    o 'none'."""
     text = _normalize_text(command_text)
     targets_something_else = any(word in text for word in OTHER_TARGET_WORDS)
 
@@ -344,6 +392,14 @@ def _classify_control_intent(command_text: str) -> str:
         return "camera_hide"
     if is_short_command and any(p in text for p in CAMERA_SHOW_PHRASES):
         return "camera_show"
+
+    # OFF antes que ON a propósito: "desactiva los gestos" contiene la
+    # subcadena "activa los gestos" (des-ACTIVA), igual que ya pasaba con
+    # control remoto — si se revisara ON primero nunca se llegaría al OFF.
+    if is_short_command and any(p in text for p in GESTURES_OFF_PHRASES):
+        return "gestures_off"
+    if is_short_command and any(p in text for p in GESTURES_ON_PHRASES):
+        return "gestures_on"
 
     if is_short_command and any(p in text for p in QUALITY_LOW_PHRASES):
         return "quality_low"
@@ -621,8 +677,15 @@ def _handle_fast_intent(command_text: str, config, brain, gemini_brain_ai, local
     if intent in ("camera_hide", "camera_show"):
         hide = intent == "camera_hide"
         ui_server.broadcast_camera_control("hide" if hide else "show")
-        reply = "Listo, escondí la ventana de la cámara." if hide else "Listo, volví a mostrar la ventana de la cámara."
+        reply = "Listo, oculté el video de la cámara." if hide else "Listo, mostrando el video de la cámara."
         print(f"{config.assistant_name}: {reply} [camara = {'oculta' if hide else 'visible'}]")
+        voice.speak(reply)
+        ui_server.broadcast_transcript("assistant", reply)
+        return "handled"
+
+    if intent in ("gestures_on", "gestures_off"):
+        reply = _start_gestures() if intent == "gestures_on" else _stop_gestures()
+        print(f"{config.assistant_name}: {reply} [gestos = {'activados' if intent == 'gestures_on' else 'desactivados'}]")
         voice.speak(reply)
         ui_server.broadcast_transcript("assistant", reply)
         return "handled"
@@ -906,11 +969,141 @@ def _wait_while_speaking(stop_event: threading.Event) -> None:
         time.sleep(0.1)
 
 
+def _run_conversation_turns(
+    config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock: threading.Lock, stop_event: threading.Event
+) -> None:
+    """Modo conversación: una vez activado (palabra clave o gesto), sigue
+    escuchando turno tras turno sin necesitar activarse de nuevo, hasta que
+    haya silencio o el usuario indique que terminó. El procesamiento con IA
+    se despacha a otro hilo (ver _handle_command), así que este bucle nunca
+    deja de escuchar mientras Rochy "piensa".
+
+    MIENTRAS HABLA, el micrófono también se queda activo (antes se pausaba
+    del todo) — pero solo reacciona si lo que oye es una cancelación real
+    (ver CANCEL_PHRASES): cualquier otra cosa se ignora en silencio sin
+    mostrarse ni procesarse, así que aunque su propia voz se cuele por el
+    micrófono (sin auriculares) nunca pasa nada raro — no coincide con esas
+    frases exactas y se descarta. Esto es a propósito: antes, con el
+    micrófono pausado del todo mientras hablaba, no había forma de
+    interrumpirla a mitad de una respuesta larga, y eso se sentía como
+    quedar "bloqueado" varios segundos sin poder decir nada."""
+    still_there_asked = False
+    while not stop_event.is_set():
+        if proc.end_conversation_event.is_set():
+            # "descansa" pedido desde otro canal (texto/celular) mientras
+            # esta conversación por voz seguía activa — se corta acá aunque
+            # la orden no haya llegado por este bucle. Se limpia enseguida:
+            # es una señal de un solo uso.
+            proc.end_conversation_event.clear()
+            break
+        speaking_now = proc.speaking_event.is_set()
+        in_echo_grace = not speaking_now and (time.time() - proc.speech_ended_at < POST_SPEECH_GRACE_SECONDS)
+        treat_as_speaking = speaking_now or in_echo_grace
+        ui_server.broadcast_state("speaking" if treat_as_speaking else "listening")
+        if not treat_as_speaking:
+            # Pitido corto: marca el momento exacto en que el micrófono
+            # empieza a escuchar de verdad de un turno normal (no mientras
+            # habla ni en el ratito justo después — ahí no, para no sonar
+            # de más).
+            sound_cues.listening_started()
+        if treat_as_speaking:
+            # Ventanas cortas mientras habla (o en el ratito justo después)
+            # — así una cancelación se detecta rápido, en vez de esperar
+            # hasta 15s a que la frase "termine" (que con su propia voz de
+            # fondo podría tardar en darse por terminada).
+            command_text = listener.listen(timeout=1.5, phrase_time_limit=3)
+        else:
+            # Se escucha en dos mitades del tiempo total permitido (ver
+            # _conversation_timeout, ya no es un número fijo): si la primera
+            # mitad pasa en silencio, se pregunta "¿sigues ahí?" en vez de
+            # cortar la conversación sin avisar — solo si la SEGUNDA mitad
+            # también pasa en silencio se da por terminada de verdad.
+            command_text = listener.listen(timeout=_conversation_timeout() / 2, phrase_time_limit=15)
+        if not command_text:
+            # Mientras habla (o en el ratito de gracia justo después), un
+            # silencio corto no significa nada — es solo que esa ventana de
+            # sondeo es breve a propósito. Antes esto podía cortar la
+            # conversación entera por accidente: si justo en esos 1.5s de
+            # gracia no se oía nada Y nada más seguía procesándose, se
+            # trataba como si el usuario hubiera abandonado la conversación
+            # de verdad.
+            if treat_as_speaking or proc.busy_event.is_set() or proc.speaking_event.is_set():
+                continue
+            if not still_there_asked:
+                still_there_asked = True
+                voice.speak(STILL_THERE_PHRASE)
+                continue
+            break
+
+        still_there_asked = False
+
+        if treat_as_speaking or proc.speaking_event.is_set():
+            # OJO: se filtra si estaba hablando (o recién terminó de hablar,
+            # ver POST_SPEECH_GRACE_SECONDS) ANTES de escuchar
+            # (treat_as_speaking) O JUSTO DESPUÉS (is_set() de nuevo aquí) —
+            # cubre la carrera en los dos sentidos. Grabar + transcribir
+            # tarda uno o dos segundos, tiempo de sobra para que Rochy
+            # empiece o termine de hablar A MITAD de esa espera. Si solo
+            # mirábamos un lado, su propia voz recién grabada se colaba
+            # como si fuera un comando real del usuario. Esto pasó de
+            # verdad: se escuchó preguntar algo y lo procesó como si el
+            # usuario hubiera repetido la misma pregunta.
+            if _is_cancel(command_text):
+                print(f"Tú (voz): {command_text}")
+                ui_server.broadcast_transcript("user", command_text)
+                voice.stop_speaking()
+                proc.cancel_event.set()
+                ui_server.broadcast_transcript("assistant", "[interrumpido]")
+                # Antes solo se veía "[interrumpido]" en el chat, sin decir
+                # nada en voz — se sentía raro cortarla y que se quede en
+                # silencio total sin reconocer que entendió.
+                voice.speak("Entendido, cancelado.")
+            # lo que no sea cancelación se ignora del todo, ni se registra —
+            # es justo lo que se oye mientras habla.
+            continue
+
+        if _sounds_like_self_echo(command_text):
+            # No estaba marcada como "hablando" (ya se filtró arriba), pero
+            # lo oído es casi idéntico a lo último que ella misma dijo — eco
+            # físico del parlante llegando al micrófono, no el usuario. Se
+            # registra para diagnóstico, pero no se muestra ni se procesa
+            # como comando real.
+            print(f"[info] Ignorado por parecer eco de su propia voz: {command_text!r}")
+            continue
+
+        sound_cues.listening_stopped()
+
+        if _handle_cancel_if_requested(command_text, voice):
+            continue
+
+        status = _handle_command(command_text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event)
+        if status == "exit":
+            stop_event.set()
+            break
+        if status == "end_conversation":
+            break
+
+
 def _voice_loop(
     config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock: threading.Lock, stop_event: threading.Event
 ) -> None:
     while not stop_event.is_set():
         try:
+            if proc.gesture_wake_event.is_set():
+                # Gesto de "quiero hablarte" (palma abierta sostenida, ver
+                # gestos_control) — activa la conversación igual que la
+                # palabra clave, sin importar si el control remoto está
+                # activo (es una entrada física distinta al micrófono de la
+                # PC, tiene sentido que siga funcionando en cualquier modo).
+                proc.gesture_wake_event.clear()
+                print("[info] Activada por gesto (quiero hablarte)")
+                proc.end_conversation_event.clear()
+                audio_ducking.duck()
+                voice.speak("Dime.")
+                _run_conversation_turns(config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock, stop_event)
+                audio_ducking.restore()
+                continue
+
             if mode_state.is_remote_control():
                 # El celular (botón de mantener presionado) es la entrada
                 # principal en este modo — no hace falta detectar la palabra
@@ -958,123 +1151,10 @@ def _voice_loop(
             # cortaría sola en su primera vuelta por una señal que ya no
             # tiene nada que ver con ella.
             proc.end_conversation_event.clear()
+            audio_ducking.duck()
             voice.speak("Dime.")
-
-            # Modo conversación: una vez activado, sigue escuchando turno tras
-            # turno sin necesitar la palabra clave otra vez, hasta que haya
-            # silencio o el usuario indique que terminó. El procesamiento con
-            # IA se despacha a otro hilo (ver _handle_command), así que este
-            # bucle nunca deja de escuchar mientras Rochy "piensa".
-            #
-            # MIENTRAS HABLA, el micrófono también se queda activo (antes se
-            # pausaba del todo) — pero solo reacciona si lo que oye es una
-            # cancelación real (ver CANCEL_PHRASES): cualquier otra cosa se
-            # ignora en silencio sin mostrarse ni procesarse, así que aunque
-            # su propia voz se cuele por el micrófono (sin auriculares) nunca
-            # pasa nada raro — no coincide con esas frases exactas y se
-            # descarta. Esto es a propósito: antes, con el micrófono pausado
-            # del todo mientras hablaba, no había forma de interrumpirla a
-            # mitad de una respuesta larga, y eso se sentía como quedar
-            # "bloqueado" varios segundos sin poder decir nada.
-            still_there_asked = False
-            while not stop_event.is_set():
-                if proc.end_conversation_event.is_set():
-                    # "descansa" pedido desde otro canal (texto/celular)
-                    # mientras esta conversación por voz seguía activa — se
-                    # corta acá aunque la orden no haya llegado por este
-                    # bucle. Se limpia enseguida: es una señal de un solo uso.
-                    proc.end_conversation_event.clear()
-                    break
-                speaking_now = proc.speaking_event.is_set()
-                in_echo_grace = not speaking_now and (
-                    time.time() - proc.speech_ended_at < POST_SPEECH_GRACE_SECONDS
-                )
-                treat_as_speaking = speaking_now or in_echo_grace
-                ui_server.broadcast_state("speaking" if treat_as_speaking else "listening")
-                if not treat_as_speaking:
-                    # Pitido corto: marca el momento exacto en que el micrófono
-                    # empieza a escuchar de verdad de un turno normal (no
-                    # mientras habla ni en el ratito justo después — ahí no,
-                    # para no sonar de más).
-                    sound_cues.listening_started()
-                if treat_as_speaking:
-                    # Ventanas cortas mientras habla (o en el ratito justo
-                    # después) — así una cancelación se detecta rápido, en vez
-                    # de esperar hasta 15s a que la frase "termine" (que con su
-                    # propia voz de fondo podría tardar en darse por terminada).
-                    command_text = listener.listen(timeout=1.5, phrase_time_limit=3)
-                else:
-                    # Se escucha en dos mitades del tiempo total permitido (ver
-                    # _conversation_timeout, ya no es un número fijo): si la
-                    # primera mitad pasa en silencio, se pregunta "¿sigues
-                    # ahí?" en vez de cortar la conversación sin avisar — solo
-                    # si la SEGUNDA mitad también pasa en silencio se da por
-                    # terminada de verdad.
-                    command_text = listener.listen(timeout=_conversation_timeout() / 2, phrase_time_limit=15)
-                if not command_text:
-                    # Mientras habla (o en el ratito de gracia justo después),
-                    # un silencio corto no significa nada — es solo que esa
-                    # ventana de sondeo es breve a propósito. Antes esto podía
-                    # cortar la conversación entera por accidente: si justo en
-                    # esos 1.5s de gracia no se oía nada Y nada más seguía
-                    # procesándose, se trataba como si el usuario hubiera
-                    # abandonado la conversación de verdad.
-                    if treat_as_speaking or proc.busy_event.is_set() or proc.speaking_event.is_set():
-                        continue
-                    if not still_there_asked:
-                        still_there_asked = True
-                        voice.speak(STILL_THERE_PHRASE)
-                        continue
-                    break
-
-                still_there_asked = False
-
-                if treat_as_speaking or proc.speaking_event.is_set():
-                    # OJO: se filtra si estaba hablando (o recién terminó de
-                    # hablar, ver POST_SPEECH_GRACE_SECONDS) ANTES de escuchar
-                    # (treat_as_speaking) O JUSTO DESPUÉS (is_set() de nuevo
-                    # aquí) — cubre la carrera en los dos sentidos. Grabar +
-                    # transcribir tarda uno o dos segundos, tiempo de sobra
-                    # para que Rochy empiece o termine de hablar A MITAD de
-                    # esa espera. Si solo mirábamos un lado, su propia voz
-                    # recién grabada se colaba como si fuera un comando real
-                    # del usuario. Esto pasó de verdad: se escuchó preguntar
-                    # algo y lo procesó como si el usuario hubiera repetido
-                    # la misma pregunta.
-                    if _is_cancel(command_text):
-                        print(f"Tú (voz): {command_text}")
-                        ui_server.broadcast_transcript("user", command_text)
-                        voice.stop_speaking()
-                        proc.cancel_event.set()
-                        ui_server.broadcast_transcript("assistant", "[interrumpido]")
-                        # Antes solo se veía "[interrumpido]" en el chat, sin
-                        # decir nada en voz — se sentía raro cortarla y que se
-                        # quede en silencio total sin reconocer que entendió.
-                        voice.speak("Entendido, cancelado.")
-                    # lo que no sea cancelación se ignora del todo, ni se
-                    # registra — es justo lo que se oye mientras habla.
-                    continue
-
-                if _sounds_like_self_echo(command_text):
-                    # No estaba marcada como "hablando" (ya se filtró arriba),
-                    # pero lo oído es casi idéntico a lo último que ella misma
-                    # dijo — eco físico del parlante llegando al micrófono, no
-                    # el usuario. Se registra para diagnóstico, pero no se
-                    # muestra ni se procesa como comando real.
-                    print(f"[info] Ignorado por parecer eco de su propia voz: {command_text!r}")
-                    continue
-
-                sound_cues.listening_stopped()
-
-                if _handle_cancel_if_requested(command_text, voice):
-                    continue
-
-                status = _handle_command(command_text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event)
-                if status == "exit":
-                    stop_event.set()
-                    break
-                if status == "end_conversation":
-                    break
+            _run_conversation_turns(config, brain, gemini_brain_ai, local_brain_ai, voice, listener, lock, stop_event)
+            audio_ducking.restore()
         except Exception as exc:
             # cualquier fallo puntual (red, TTS, una herramienta) no debe matar
             # el hilo del asistente ni dejar la interfaz congelada — y siempre
@@ -1120,6 +1200,11 @@ def _remote_audio_loop(
             continue
         if _handle_cancel_if_requested(text, voice, source="celular"):
             continue
+        # Apretar el botón del celular ya es "quiero hablarte" explícito —
+        # baja la música igual que la palabra clave o el gesto, mientras
+        # dura esta orden puntual (el control remoto es de a un botón por
+        # vez, no una conversación de micrófono abierto como la de voz).
+        audio_ducking.duck()
         try:
             status = _handle_command(
                 text, config, brain, gemini_brain_ai, local_brain_ai, voice, lock, stop_event, source="celular"
@@ -1128,6 +1213,8 @@ def _remote_audio_loop(
                 stop_event.set()
         except Exception as exc:
             _report_error(voice, exc)
+        finally:
+            audio_ducking.restore()
 
 
 def _assistant_loop(window) -> None:
